@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="8192" height="5200" viewBox="0 0 8192 5200">
+  <defs>
+    <radialGradient id="tissue" cx="50%" cy="45%" r="70%">
+      <stop offset="0" stop-color="#1c4252"/><stop offset=".58" stop-color="#112d3c"/><stop offset="1" stop-color="#07151f"/>
+    </radialGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#61e5d5"/><stop offset=".5" stop-color="#319ab5"/><stop offset="1" stop-color="#9865d0"/></linearGradient>
+    <pattern id="cells" width="188" height="164" patternUnits="userSpaceOnUse">
+      <circle cx="28" cy="36" r="8" fill="#6ff0e0" opacity=".66"/><circle cx="129" cy="71" r="5" fill="#c186e8" opacity=".5"/>
+      <circle cx="83" cy="137" r="4" fill="#5db2df" opacity=".65"/><circle cx="169" cy="143" r="7" fill="#59dfd1" opacity=".4"/>
+    </pattern>
+  </defs>
+  <rect width="8192" height="5200" fill="#030810"/>
+  <ellipse cx="4096" cy="2650" rx="3620" ry="2220" fill="#0a1722" stroke="#1c3b4d" stroke-width="14"/>
+  <path d="M4050 735C3218 225 2030 395 1260 1110 455 1858 490 3270 1250 4110c630 696 1700 740 2390 165 320-267 432-702 438-1182l-28-2358Z" fill="url(#tissue)" stroke="url(#rim)" stroke-width="30"/>
+  <path d="M4142 735c832-510 2020-340 2790 375 805 748 770 2160 10 3000-630 696-1700 740-2390 165-320-267-432-702-438-1182l28-2358Z" fill="url(#tissue)" stroke="url(#rim)" stroke-width="30"/>
+  <path d="M3995 1210c-410-455-1095-490-1570-80-490 421-602 1188-255 1728 287 446 861 495 1240 178 260-218 360-557 350-937l235-889Z" fill="#07141f" stroke="#2f7990" stroke-width="22"/>
+  <path d="M4197 1210c410-455 1095-490 1570-80 490 421 602 1188 255 1728-287 446-861 495-1240 178-260-218-360-557-350-937l-235-889Z" fill="#07141f" stroke="#2f7990" stroke-width="22"/>
+  <path d="M3675 1610c-380-248-865-183-1105 156-218 308-140 746 174 978 288 213 691 156 930-112 191-214 230-563 1-1022Z" fill="#123344" stroke="#5ed5c7" stroke-width="18" opacity=".82"/>
+  <path d="M4517 1610c380-248 865-183 1105 156 218 308 140 746-174 978-288 213-691 156-930-112-191-214-230-563-1-1022Z" fill="#123344" stroke="#5ed5c7" stroke-width="18" opacity=".82"/>
+  <path d="M3745 3120c-650-425-1570-220-1970 440-179 294-170 598-28 840 573 245 1272 152 1770-265 277-233 361-630 228-1015Z" fill="#0e2736" stroke="#7658ad" stroke-width="20"/>
+  <path d="M4447 3120c650-425 1570-220 1970 440 179 294 170 598 28 840-573 245-1272 152-1770-265-277-233-361-630-228-1015Z" fill="#0e2736" stroke="#7658ad" stroke-width="20"/>
+  <path d="M2380 850c-980 475-1410 1270-1240 2260 112 648 442 1085 925 1330M5812 850c980 475 1410 1270 1240 2260-112 648-442 1085-925 1330" fill="none" stroke="#45cabd" stroke-width="42" opacity=".26"/>
+  <path d="M3050 720c-620 310-990 826-980 1440 8 451 241 796 565 1045M5142 720c620 310 990 826 980 1440-8 451-241 796-565 1045" fill="none" stroke="#a776d2" stroke-width="24" opacity=".4"/>
+  <path d="M4068 720c-132 670-157 1360-35 2050 65 370 80 810 25 1330" fill="none" stroke="#5adacb" stroke-width="34" opacity=".75"/>
+  <path d="M4124 720c132 670 157 1360 35 2050-65 370-80 810-25 1330" fill="none" stroke="#7156a8" stroke-width="25" opacity=".75"/>
+  <path d="M760 2380c1050-530 2200-624 3350-240M7432 2380c-1050-530-2200-624-3350-240" fill="none" stroke="#327f9d" stroke-width="18" opacity=".48"/>
+  <path d="M1020 3220c1110-320 2120-248 3055 215M7172 3220c-1110-320-2120-248-3055 215" fill="none" stroke="#4ac8bb" stroke-width="14" opacity=".36"/>
+  <path d="M960 1060h3100v3350H960zM4132 1060h3100v3350H4132z" fill="url(#cells)" opacity=".34"/>
+  <g fill="#bb83df" opacity=".9">
+    <circle cx="1830" cy="1370" r="22"/><circle cx="2160" cy="1490" r="17"/><circle cx="2710" cy="1100" r="14"/><circle cx="3190" cy="1420" r="20"/>
+    <circle cx="6362" cy="1370" r="22"/><circle cx="6032" cy="1490" r="17"/><circle cx="5482" cy="1100" r="14"/><circle cx="5002" cy="1420" r="20"/>
+  </g>
+  <g fill="#63e2d2" opacity=".88">
+    <circle cx="1480" cy="2650" r="18"/><circle cx="1990" cy="2880" r="13"/><circle cx="2760" cy="3180" r="21"/><circle cx="3380" cy="3680" r="15"/>
+    <circle cx="6712" cy="2650" r="18"/><circle cx="6202" cy="2880" r="13"/><circle cx="5432" cy="3180" r="21"/><circle cx="4812" cy="3680" r="15"/>
+  </g>
+  <g fill="none" stroke="#89f1e6" stroke-width="8" opacity=".42">
+    <path d="M1280 990c480 360 730 790 740 1320M6912 990c-480 360-730 790-740 1320"/>
+    <path d="M1700 4030c540-440 1130-550 1760-330M6492 4030c-540-440-1130-550-1760-330"/>
+  </g>
+</svg>

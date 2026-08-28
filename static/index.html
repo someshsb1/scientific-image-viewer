@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b1118" />
+    <meta
+      name="description"
+      content="Internal deep-zoom viewer for JP2, TIFF, SWC, and scientific JSON datasets."
+    />
+    <title>NeuroScope · Scientific Image Viewer</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <svg class="svg-defs" aria-hidden="true">
+      <symbol id="i-logo" viewBox="0 0 32 32">
+        <path d="M7 5.5 16 2l9 3.5-9 3.6L7 5.5Z" />
+        <path d="m7 11 9 3.6 9-3.6M7 16.5l9 3.6 9-3.6M7 22l9 3.6 9-3.6" />
+      </symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
+      <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14" /></symbol>
+      <symbol id="i-layers" viewBox="0 0 24 24">
+        <path d="m4 8 8-4 8 4-8 4-8-4Zm0 4.5 8 4 8-4M4 17l8 4 8-4" />
+      </symbol>
+      <symbol id="i-fit" viewBox="0 0 24 24">
+        <path d="M8.5 4H4v4.5M15.5 4H20v4.5M8.5 20H4v-4.5M15.5 20H20v-4.5" />
+      </symbol>
+      <symbol id="i-reset" viewBox="0 0 24 24">
+        <path d="M4.5 8.5A8 8 0 1 1 4 14M4.5 8.5V3.8m0 4.7h4.7" />
+      </symbol>
+      <symbol id="i-eye" viewBox="0 0 24 24">
+        <path d="M2.8 12s3.5-6 9.2-6 9.2 6 9.2 6-3.5 6-9.2 6-9.2-6-9.2-6Z" /><circle cx="12" cy="12" r="2.5" />
+      </symbol>
+      <symbol id="i-eye-off" viewBox="0 0 24 24">
+        <path d="m3 3 18 18M10.5 6.2A10.5 10.5 0 0 1 12 6c5.7 0 9.2 6 9.2 6a15 15 0 0 1-2.3 3M6.2 6.2C4 7.7 2.8 12 2.8 12s3.5 6 9.2 6c1 0 1.9-.2 2.7-.5M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+      </symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24">
+        <path d="M4.5 7h15M9 7V4.5h6V7m3 0-1 13H7L6 7m4 4v5m4-5v5" />
+      </symbol>
+      <symbol id="i-image" viewBox="0 0 24 24">
+        <rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="8.5" cy="9" r="1.5" /><path d="m4 17 5-5 3.5 3.5 2.5-2.5 5 5" />
+      </symbol>
+      <symbol id="i-server" viewBox="0 0 24 24">
+        <rect x="3" y="4" width="18" height="6" rx="1.5" /><rect x="3" y="14" width="18" height="6" rx="1.5" /><path d="M7 7h.1M7 17h.1M11 7h7M11 17h7" />
+      </symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 6v5h-5M4 18v-5h5" /><path d="M6.1 9A7 7 0 0 1 18.5 7.5L20 11M4 13l1.5 3.5A7 7 0 0 0 17.9 15" /></symbol>
+      <symbol id="i-network" viewBox="0 0 24 24">
+        <circle cx="6" cy="6" r="2" /><circle cx="18" cy="5" r="2" /><circle cx="16" cy="18" r="2" /><circle cx="5" cy="17" r="2" /><path d="m7.8 6.7 8.3-1M7 7.7l7.8 8.7M6.9 15.2l7.2 2.1M5.7 8v7" />
+      </symbol>
+      <symbol id="i-points" viewBox="0 0 24 24">
+        <circle cx="6" cy="8" r="2" /><circle cx="16.5" cy="6" r="1.5" /><circle cx="18" cy="16" r="2" /><circle cx="8" cy="17" r="1.5" />
+      </symbol>
+      <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M12 10v6m0-9v.1" /></symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" /></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4.3 4.3L19 6.5" /></symbol>
+      <symbol id="i-warning" viewBox="0 0 24 24"><path d="M12 3 2.8 20h18.4L12 3Z" /><path d="M12 9v4.5m0 3v.1" /></symbol>
+      <symbol id="i-cursor" viewBox="0 0 24 24"><path d="m5 3 13.5 9-6.2 1.1L9 19 5 3Z" /></symbol>
+      <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M9.7 9a2.5 2.5 0 1 1 3 2.5c-.7.2-.7 1-.7 1.5m0 3.5v.1" /></symbol>
+      <symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 2 1.5 5.1L18 9l-4.5 1.9L12 16l-1.5-5.1L6 9l4.5-1.9L12 2Zm6 12 .8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8L18 14Z" /></symbol>
+      <symbol id="i-grid" viewBox="0 0 24 24"><path d="M4 4h6v6H4V4Zm10 0h6v6h-6V4ZM4 14h6v6H4v-6Zm10 0h6v6h-6v-6Z" /></symbol>
+      <symbol id="i-library" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="15" rx="2" /><path d="M7 5V3h10v2M8 10h8m-8 4h5" /></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m15.5 15.5 5 5" /></symbol>
+    </svg>
+
+    <div class="app-shell">
+      <header class="app-header">
+        <div class="brand">
+          <span class="brand-mark"><svg><use href="#i-logo"></use></svg></span>
+          <div>
+            <div class="brand-name">NeuroScope <span>Internal</span></div>
+            <div class="brand-subtitle">Scientific image workspace</div>
+          </div>
+        </div>
+
+        <div class="header-context" aria-label="Current workspace">
+          <span class="context-label">Workspace</span>
+          <span class="context-separator">/</span>
+          <span id="workspace-title">Untitled inspection</span>
+        </div>
+
+        <div class="header-actions">
+          <div class="connection-pill" title="Files remain on this internal server">
+            <span class="connection-dot"></span> Local session
+          </div>
+          <button class="button button-ghost" id="server-open-button">
+            <svg><use href="#i-server"></use></svg>
+            Open server path
+          </button>
+          <button class="button button-ghost" id="image-library-button" title="Browse images already available in NeuroScope">
+            <svg><use href="#i-library"></use></svg>
+            Images
+          </button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="panel layer-panel">
+          <div class="panel-heading">
+            <div>
+              <span class="eyebrow">Workspace</span>
+              <h2>Layers <span class="count-badge" id="layer-count">0</span></h2>
+            </div>
+          </div>
+
+          <div class="layer-list" id="layer-list"></div>
+          <div class="layers-empty" id="layers-empty">
+            <span class="empty-layer-icon"><svg><use href="#i-layers"></use></svg></span>
+            <p>No layers yet</p>
+            <span>Your base image and scientific overlays will appear here.</span>
+          </div>
+
+          <div class="sidebar-guide">
+            <div class="guide-icon"><svg><use href="#i-cursor"></use></svg></div>
+            <div>
+              <strong>Image coordinates</strong>
+              <p>Origin is top-left. Move over the image to inspect X and Y.</p>
+            </div>
+          </div>
+        </aside>
+
+        <section class="viewer-column">
+          <div class="viewer-toolbar" aria-label="Viewer controls">
+            <div class="tool-group">
+              <button class="tool-button" id="zoom-out" title="Zoom out (−)" disabled>
+                <svg><use href="#i-minus"></use></svg>
+              </button>
+              <div class="zoom-readout" id="toolbar-zoom">—</div>
+              <button class="tool-button" id="zoom-in" title="Zoom in (+)" disabled>
+                <svg><use href="#i-plus"></use></svg>
+              </button>
+            </div>
+            <span class="toolbar-divider"></span>
+            <button class="tool-button labeled" id="fit-button" disabled title="Fit image (F)">
+              <svg><use href="#i-fit"></use></svg><span>Fit</span>
+            </button>
+            <button class="tool-button labeled" id="reset-button" disabled title="Reset to 100% (0)">
+              <svg><use href="#i-reset"></use></svg><span>1:1</span>
+            </button>
+            <span class="toolbar-divider"></span>
+            <button class="tool-button labeled active" id="grid-button" title="Toggle tile boundaries">
+              <svg><use href="#i-grid"></use></svg><span>Seamless</span>
+            </button>
+            <div class="toolbar-spacer"></div>
+            <div class="toolbar-hint"><span class="mouse-wheel"></span> Scroll to zoom · drag to pan</div>
+          </div>
+
+          <div class="canvas-shell" id="canvas-shell" tabindex="0" aria-label="Scientific image viewport">
+            <canvas id="viewer-canvas"></canvas>
+
+            <div class="empty-state" id="empty-state">
+              <div class="empty-visual">
+                <div class="scan-frame scan-one"></div>
+                <div class="scan-frame scan-two"></div>
+                <div class="scan-glow"></div>
+                <svg><use href="#i-image"></use></svg>
+              </div>
+              <span class="empty-kicker">Deep-zoom workspace</span>
+              <h1>Inspect every detail.</h1>
+              <p>Paste the absolute path to a JP2 or TIFF on configured server storage. After it opens, use the same dialog to add JSON and SWC overlays.</p>
+              <div class="empty-actions">
+                <button class="button button-primary" id="empty-server-open">
+                  <svg><use href="#i-server"></use></svg>Open server path
+                </button>
+                <button class="button button-secondary" id="empty-image-library">
+                  <svg><use href="#i-library"></use></svg>Available images
+                </button>
+                <button class="button button-secondary" id="demo-button">
+                  <svg><use href="#i-spark"></use></svg>Explore demo
+                </button>
+              </div>
+              <div class="format-row"><span>JP2</span><i></i><span>TIF</span><i></i><span>TIFF</span><small>Up to server limit</small></div>
+            </div>
+
+            <div class="processing-state hidden" id="processing-state" aria-live="polite">
+              <div class="processing-card">
+                <div class="processor-visual">
+                  <svg><use href="#i-logo"></use></svg>
+                  <span></span>
+                </div>
+                <span class="empty-kicker" id="processing-kicker">1 of 3 · Source</span>
+                <h2 id="processing-title">Connecting source image</h2>
+                <p id="processing-message">Connecting the mounted source to the NeuroScope tile service.</p>
+                <div class="processing-steps" aria-label="Image preparation stages">
+                  <span data-processing-step="source"><i></i><b>Source</b></span>
+                  <span data-processing-step="register"><i></i><b>Register</b></span>
+                  <span data-processing-step="ready"><i></i><b>Ready</b></span>
+                </div>
+                <div class="progress-track" id="progress-track" role="progressbar" aria-label="Image preparation progress" aria-valuemin="0" aria-valuemax="100">
+                  <div id="progress-bar"></div>
+                </div>
+                <div class="progress-meta"><span id="progress-file">Image</span><span id="progress-value">0%</span></div>
+              </div>
+            </div>
+
+            <div class="viewport-chip hidden" id="resolution-chip"><span></span><span id="resolution-label">Level 0</span></div>
+            <div class="scale-bar hidden" id="scale-bar"><div></div><span id="scale-label">100 px</span></div>
+
+            <div class="minimap hidden" id="minimap">
+              <div class="minimap-heading"><span>Overview</span><button id="minimap-close" aria-label="Hide overview"><svg><use href="#i-close"></use></svg></button></div>
+              <canvas id="minimap-canvas" width="220" height="132"></canvas>
+            </div>
+          </div>
+
+          <footer class="status-bar">
+            <div class="coordinate-item"><span>X</span><strong id="cursor-x">—</strong></div>
+            <div class="coordinate-item"><span>Y</span><strong id="cursor-y">—</strong></div>
+            <span class="status-divider"></span>
+            <div class="status-item"><span>Zoom</span><strong id="status-zoom">—</strong></div>
+            <div class="status-item"><span>Format</span><strong id="status-format">—</strong></div>
+            <div class="status-item"><span>Dimensions</span><strong id="status-dimensions">—</strong></div>
+            <div class="status-spacer"></div>
+            <div class="tile-status" id="tile-status"><span></span>No image loaded</div>
+          </footer>
+        </section>
+
+        <aside class="panel inspector-panel">
+          <div class="panel-heading inspector-heading">
+            <div>
+              <span class="eyebrow">Selection</span>
+              <h2>Inspector</h2>
+            </div>
+            <svg class="heading-icon"><use href="#i-info"></use></svg>
+          </div>
+
+          <div class="inspector-empty" id="inspector-empty">
+            <div><svg><use href="#i-cursor"></use></svg></div>
+            <strong>Nothing selected</strong>
+            <p>Select a layer to inspect its metadata and rendering controls.</p>
+          </div>
+
+          <div class="inspector-content hidden" id="inspector-content">
+            <div class="selected-summary">
+              <span class="layer-swatch" id="selected-swatch"></span>
+              <div><strong id="selected-name">Layer</strong><span id="selected-type">Overlay</span></div>
+              <button class="icon-button compact" id="selected-visibility" title="Toggle visibility"><svg><use href="#i-eye"></use></svg></button>
+            </div>
+
+            <section class="inspector-section" id="appearance-section">
+              <div class="section-title"><span>Appearance</span></div>
+              <label class="field-label" for="opacity-range"><span>Opacity</span><output id="opacity-output">100%</output></label>
+              <input class="range" id="opacity-range" type="range" min="0" max="100" value="100" />
+              <div class="control-row overlay-only">
+                <label class="field-block"><span>Color</span><span class="color-control"><input id="color-input" type="color" value="#35d1c5" /><b id="color-value">#35D1C5</b></span></label>
+                <label class="field-block"><span>Size</span><span class="stepper"><button id="size-down">−</button><output id="size-output">2 px</output><button id="size-up">+</button></span></label>
+              </div>
+            </section>
+
+            <section class="inspector-section overlay-only" id="coordinates-section">
+              <div class="section-title"><span>Coordinates</span><small>Image space</small></div>
+              <div class="control-row">
+                <label class="field-block"><span>X offset</span><input class="text-input" id="offset-x" type="number" value="0" step="1" /></label>
+                <label class="field-block"><span>Y offset</span><input class="text-input" id="offset-y" type="number" value="0" step="1" /></label>
+              </div>
+              <label class="toggle-row"><span><strong>Flip Y axis</strong><small>Use bottom-left origin</small></span><input id="flip-y" type="checkbox" /><i></i></label>
+              <div class="bounds-note" id="bounds-note"><svg><use href="#i-check"></use></svg><span>Coordinates fit image bounds</span></div>
+            </section>
+
+            <section class="inspector-section">
+              <div class="section-title"><span>Details</span></div>
+              <dl class="metadata-list" id="metadata-list"></dl>
+            </section>
+
+            <button class="remove-button overlay-only" id="remove-layer"><svg><use href="#i-trash"></use></svg>Remove overlay</button>
+          </div>
+
+          <button class="shortcuts-button" id="shortcuts-button"><svg><use href="#i-help"></use></svg><span>Keyboard shortcuts</span><kbd>?</kbd></button>
+        </aside>
+      </main>
+    </div>
+
+    <dialog id="shortcuts-dialog">
+      <div class="dialog-heading"><div><span class="eyebrow">Reference</span><h2>Keyboard shortcuts</h2></div><button id="close-shortcuts"><svg><use href="#i-close"></use></svg></button></div>
+      <div class="shortcut-grid">
+        <span>Zoom in / out</span><div><kbd>+</kbd><kbd>−</kbd></div>
+        <span>Fit image</span><kbd>F</kbd>
+        <span>Actual size</span><kbd>0</kbd>
+        <span>Pan view</span><div><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd></div>
+        <span>Available images</span><kbd>L</kbd>
+        <span>Open server path</span><kbd>S</kbd>
+      </div>
+    </dialog>
+
+    <dialog class="image-library-dialog" id="image-library-dialog" aria-labelledby="image-library-title" aria-describedby="image-library-description">
+      <div class="dialog-heading image-library-heading">
+        <div><span class="eyebrow">Server library</span><h2 id="image-library-title">Available images</h2></div>
+        <div class="image-library-heading-actions">
+          <button id="refresh-image-library" aria-label="Refresh available images" title="Refresh"><svg><use href="#i-refresh"></use></svg></button>
+          <button id="close-image-library" aria-label="Close available images"><svg><use href="#i-close"></use></svg></button>
+        </div>
+      </div>
+      <div class="image-library-summary">
+        <p id="image-library-description">Reopen a saved image registration, or open an absolute path on configured server storage.</p>
+        <label class="image-library-search" for="image-library-search">
+          <svg aria-hidden="true"><use href="#i-search"></use></svg>
+          <span class="visually-hidden">Search available images by filename or ID</span>
+          <input id="image-library-search" type="search" placeholder="Search filename or ID" autocomplete="off" />
+        </label>
+        <span id="image-library-total" aria-live="polite">Loading…</span>
+      </div>
+      <div class="image-library-list" id="image-library-list" role="list"></div>
+      <div class="image-library-empty hidden" id="image-library-empty">
+        <span class="image-library-empty-icon"><svg><use href="#i-image"></use></svg></span>
+        <strong>No images available yet</strong>
+        <p>Open an image directly from a configured server location.</p>
+        <div>
+          <button class="button button-primary" id="library-server-open"><svg><use href="#i-server"></use></svg>Open server path</button>
+        </div>
+      </div>
+      <div class="image-library-footer">
+        <span><svg><use href="#i-info"></use></svg>Mounted source files stay in their original location.</span>
+        <button class="button button-ghost" id="done-image-library">Done</button>
+      </div>
+    </dialog>
+
+    <dialog class="server-path-dialog" id="server-path-dialog" aria-labelledby="server-path-title" aria-describedby="server-path-help">
+      <div class="dialog-heading server-dialog-heading">
+        <div><span class="eyebrow">Configured storage</span><h2 id="server-path-title">Open server path</h2></div>
+        <button id="close-server-path" aria-label="Close server path dialog"><svg><use href="#i-close"></use></svg></button>
+      </div>
+      <form class="server-path-form" id="server-path-form" novalidate>
+        <div class="server-path-copy">
+          <label for="server-path-input">Absolute server file path</label>
+          <span id="server-path-help">Paste the complete path to a JP2, TIFF, JSON, or SWC inside configured storage. The source stays in place.</span>
+        </div>
+        <div class="server-path-entry">
+          <input
+            id="server-path-input"
+            type="text"
+            inputmode="url"
+            autocomplete="off"
+            autocapitalize="none"
+            spellcheck="false"
+            autofocus
+            placeholder="/nfs/data/…/section.jp2"
+            aria-describedby="server-path-help server-path-status"
+            aria-invalid="false"
+          />
+          <button class="button button-secondary" id="open-server-path" type="submit" disabled>
+            <svg><use href="#i-server"></use></svg><span id="server-path-submit-label">Open path</span>
+          </button>
+        </div>
+        <span class="server-path-status" id="server-path-status" role="status" aria-live="polite"></span>
+      </form>
+    </dialog>
+
+    <div class="toast-region" id="toast-region" aria-live="polite"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

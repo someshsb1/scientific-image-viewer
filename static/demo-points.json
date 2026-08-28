@@ -1,0 +1,19 @@
+{
+  "schema": "cell-detections/v1",
+  "points": [
+    {"x": 1260, "y": 1380, "confidence": 0.97, "class": "soma"},
+    {"x": 1560, "y": 1740, "confidence": 0.91, "class": "soma"},
+    {"x": 1910, "y": 2140, "confidence": 0.94, "class": "soma"},
+    {"x": 2190, "y": 2920, "confidence": 0.86, "class": "candidate"},
+    {"x": 2630, "y": 3490, "confidence": 0.92, "class": "soma"},
+    {"x": 3150, "y": 1160, "confidence": 0.89, "class": "candidate"},
+    {"x": 3460, "y": 3720, "confidence": 0.96, "class": "soma"},
+    {"x": 6932, "y": 1380, "confidence": 0.97, "class": "soma"},
+    {"x": 6632, "y": 1740, "confidence": 0.91, "class": "soma"},
+    {"x": 6282, "y": 2140, "confidence": 0.94, "class": "soma"},
+    {"x": 6002, "y": 2920, "confidence": 0.86, "class": "candidate"},
+    {"x": 5562, "y": 3490, "confidence": 0.92, "class": "soma"},
+    {"x": 5042, "y": 1160, "confidence": 0.89, "class": "candidate"},
+    {"x": 4732, "y": 3720, "confidence": 0.96, "class": "soma"}
+  ]
+}

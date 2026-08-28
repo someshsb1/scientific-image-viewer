@@ -1,0 +1,11 @@
+--- etc/nginx/sites-enabled/iipsrv
++++ etc/nginx/sites-enabled/iipsrv
+@@ -48,6 +48,8 @@
+     add_header X-Frame-Options "SAMEORIGIN" always;
+     add_header X-Content-Type-Options "nosniff" always;
+     add_header X-XSS-Protection "1; mode=block" always;
++
++    include /etc/nginx/snippets/neuroscope-iip.location.conf;
+ 
+     # Internal-only: local FCGI IIPSrv for /nfs/data/ paths
+     location = /internal-iipsrv-local {
