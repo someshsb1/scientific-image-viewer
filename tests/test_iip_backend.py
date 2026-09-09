@@ -185,7 +185,7 @@ class FastJP2BackendTests(unittest.TestCase):
 
         response = backend.get_tile(image_id, 2, "3_2.jpg")
         self.assertEqual(response.body, b"tile jpeg")
-        backend.IIP.tile.assert_called_once_with(source, 2, 11, metadata["displayWindows"])
+        backend.IIP.tile.assert_called_once_with(source, 2, 11, metadata["displayWindows"], gamma=1.0)
         with self.assertRaises(backend.HTTPException) as caught:
             backend.get_tile(image_id, 2, "4_2.jpg")
         self.assertEqual(caught.exception.status_code, 404)
@@ -226,9 +226,13 @@ class FastJP2BackendTests(unittest.TestCase):
         )
 
         backend.get_tile(image_id, 3, "2_5.jpg")
-        backend.IIP.tile.assert_called_with(source, 3, 37, windows)
+        backend.IIP.tile.assert_called_with(source, 3, 37, windows, gamma=1.0)
         backend.get_tile(image_id, 3, "6_5.jpg")
         self.assertEqual(backend.IIP.tile.call_args.args[2], 41)
+
+        # Test dynamic windowing parameters
+        backend.get_tile(image_id, 3, "2_5.jpg", min="10", max="200", gam=1.5)
+        backend.IIP.tile.assert_called_with(source, 3, 37, [{"channel": 0, "min": 10.0, "max": 200.0}], gamma=1.5)
 
         for tile_name in ("7_0.jpg", "0_6.jpg"):
             with self.subTest(tile_name=tile_name):
@@ -274,6 +278,30 @@ class FastJP2BackendTests(unittest.TestCase):
 
         file_response = backend.get_mounted_overlay("test", "cells.json")
         self.assertEqual(Path(file_response.path), overlay)
+
+        # Test companion overlay discovery
+        companions_res = backend.get_image_companions(payload["id"])
+        self.assertEqual(len(companions_res["companions"]), 1)
+        self.assertEqual(companions_res["companions"][0]["filename"], "cells.json")
+
+        mount_companions = backend.find_mount_companions("test", {"path": "section.jp2"})
+        self.assertEqual(len(mount_companions["companions"]), 1)
+        self.assertEqual(mount_companions["companions"][0]["filename"], "cells.json")
+
+        # Test brain series discovery
+        brain_dir = self.mount_root / "MD1099" / "compressed_jp2"
+        brain_dir.mkdir(parents=True, exist_ok=True)
+        (brain_dir / "MD1099-F1-0001.jp2").write_bytes(b"slice1")
+        (brain_dir / "MD1099-F2-0002.jp2").write_bytes(b"slice2")
+        (brain_dir / "MD1099-F10-0003.jp2").write_bytes(b"slice10")
+        (brain_dir / "MD1099-F1-0001.json").write_text('{"type":"FeatureCollection","features":[]}')
+
+        brain_series = backend.get_brain_series("test", "MD1099")
+        self.assertEqual(brain_series["brainId"], "MD1099")
+        self.assertEqual(brain_series["sliceCount"], 3)
+        self.assertEqual([s["section"] for s in brain_series["slices"]], ["F1", "F2", "F10"])
+        self.assertEqual(len(brain_series["slices"][0]["companions"]), 1)
+
         with self.assertRaises(backend.HTTPException) as caught:
             backend.resolve_mounted_path("test", "../records", require_directory=True)
         self.assertEqual(caught.exception.status_code, 400)
@@ -461,10 +489,8 @@ class FastJP2BackendTests(unittest.TestCase):
 
         large_swc = self.mount_root / "oversized.swc"
         large_swc.write_bytes(b"12345")
-        with (
-            mock.patch.object(backend, "MAX_OVERLAY_BYTES", 4),
-            mock.patch.object(backend, "MAX_INDEXED_OVERLAY_BYTES", 10),
-        ):
+        with mock.patch.object(backend, "MAX_OVERLAY_BYTES", 4), \
+             mock.patch.object(backend, "MAX_INDEXED_OVERLAY_BYTES", 10):
             with self.assertRaises(backend.HTTPException) as swc_error:
                 backend.resolve_mounted_overlay_path({"path": str(large_swc)})
             # JSON still has an indexed route above the direct-file limit.
@@ -514,21 +540,17 @@ class FastJP2BackendTests(unittest.TestCase):
 
     def test_health_reports_dependency_failure(self):
         backend.IIP.probe.return_value = True
-        with (
-            mock.patch.object(backend, "VIPS", "vips"),
-            mock.patch.object(backend, "VIPSHEADER", "vipsheader"),
-            mock.patch.object(backend, "KDU_EXPAND", "kdu_expand"),
-        ):
+        with mock.patch.object(backend, "VIPS", "vips"), \
+             mock.patch.object(backend, "VIPSHEADER", "vipsheader"), \
+             mock.patch.object(backend, "KDU_EXPAND", "kdu_expand"):
             healthy = backend.health()
         self.assertEqual(healthy.status_code, 200)
         self.assertEqual(json.loads(healthy.body)["status"], "ok")
 
         backend.IIP.probe.side_effect = backend.IIPError("offline")
-        with (
-            mock.patch.object(backend, "VIPS", "vips"),
-            mock.patch.object(backend, "VIPSHEADER", "vipsheader"),
-            mock.patch.object(backend, "KDU_EXPAND", "kdu_expand"),
-        ):
+        with mock.patch.object(backend, "VIPS", "vips"), \
+             mock.patch.object(backend, "VIPSHEADER", "vipsheader"), \
+             mock.patch.object(backend, "KDU_EXPAND", "kdu_expand"):
             degraded = backend.health()
         payload = json.loads(degraded.body)
         self.assertEqual(degraded.status_code, 503)

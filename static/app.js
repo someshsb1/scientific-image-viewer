@@ -30,9 +30,9 @@ const els = {
   cursorY: $("#cursor-y"),
   tileStatus: $("#tile-status"),
   resolutionChip: $("#resolution-chip"),
-  resolutionLabel: $("#resolution-label"),
+  resolutionLabel: $("#resolution-chip-label") || $("#resolution-label"),
   scaleBar: $("#scale-bar"),
-  scaleLabel: $("#scale-label"),
+  scaleLabel: $("#scale-bar-label") || $("#scale-label"),
   minimap: $("#minimap"),
   minimapCanvas: $("#minimap-canvas"),
   minimapClose: $("#minimap-close"),
@@ -74,6 +74,14 @@ const els = {
   closeImageLibrary: $("#close-image-library"),
   doneImageLibrary: $("#done-image-library"),
   libraryServerOpen: $("#library-server-open"),
+  contrastSection: $("#contrast-section"),
+  brightnessRange: $("#brightness-range"),
+  brightnessOutput: $("#brightness-output"),
+  contrastRange: $("#contrast-range"),
+  contrastOutput: $("#contrast-output"),
+  gammaRange: $("#gamma-range"),
+  gammaOutput: $("#gamma-output"),
+  resetContrastButton: $("#reset-contrast-button"),
   serverPathDialog: $("#server-path-dialog"),
   serverPathForm: $("#server-path-form"),
   serverPathInput: $("#server-path-input"),
@@ -82,12 +90,65 @@ const els = {
   serverPathHelp: $("#server-path-help"),
   serverPathStatus: $("#server-path-status"),
   closeServerPath: $("#close-server-path"),
+  mountPills: $("#mount-pills"),
+  fileBrowserBreadcrumbs: $("#file-browser-breadcrumbs"),
+  fileBrowserUp: $("#file-browser-up"),
+  fileBrowserFilter: $("#file-browser-filter"),
+  fileBrowserList: $("#file-browser-list"),
+  swcAppearance: $("#swc-appearance"),
+  swcColorMode: $("#swc-color-mode"),
+  swcCompartments: $("#swc-compartments"),
+  lutPreset: $("#lut-preset"),
+  pinButton: $("#pin-button"),
+  addOverlayBtn: $("#add-overlay-btn"),
+  companionOverlayCard: $("#companion-overlay-card"),
+  companionCount: $("#companion-count"),
+  companionList: $("#companion-list"),
+  companionPickerDialog: $("#companion-picker-dialog"),
+  companionPickerList: $("#companion-picker-list"),
+  closeCompanionPicker: $("#close-companion-picker"),
+  cancelCompanionPicker: $("#cancel-companion-picker"),
+  loadAllCompanionsBtn: $("#load-all-companions-btn"),
+  sectionNavGroup: $("#section-nav-group"),
+  navPrevSection: $("#nav-prev-section"),
+  navSectionLabel: $("#nav-section-label"),
+  navNextSection: $("#nav-next-section"),
+  sectionNavHud: $("#section-nav-hud"),
+  hudNavPrev: $("#hud-nav-prev"),
+  hudNavLabel: $("#hud-nav-label"),
+  hudNavNext: $("#hud-nav-next"),
+  alignOverlayButton: $("#align-overlay-button"),
+  btn1to1Overlay: $("#btn-1to1-overlay"),
+  btnFitOverlay: $("#btn-fit-overlay"),
+  btnFlipVertical: $("#btn-flip-vertical"),
+  btnResetAlignment: $("#btn-reset-alignment"),
+  btnScaleDown: $("#btn-scale-down"),
+  btnScaleUp: $("#btn-scale-up"),
+  overlayScaleDisplay: $("#overlay-scale-display"),
+  btnNudgeLeft: $("#btn-nudge-left"),
+  btnNudgeUp: $("#btn-nudge-up"),
+  btnNudgeDown: $("#btn-nudge-down"),
+  clearAllOverlaysBtn: $("#clear-all-overlays-btn"),
+  layersSectionSync: $("#layers-section-sync"),
+  autoClearOverlaysCheckbox: $("#auto-clear-overlays-checkbox"),
+  alignmentOrientationLabel: $("#alignment-orientation-label"),
 };
 
 const state = {
   image: null,
   layers: [],
   selectedLayerId: null,
+  companions: [],
+  brainSeries: null,
+  autoClearOverlaysOnSectionChange: true,
+  browserMounts: [],
+  browserMountId: null,
+  browserPath: "",
+  browserParent: null,
+  browserEntries: [],
+  browserFilter: "",
+  pins: [],
+  isPinning: false,
   view: { x: 0, y: 0, scale: 1 },
   fitScale: 1,
   dpr: Math.min(window.devicePixelRatio || 1, 2),
@@ -108,6 +169,8 @@ const state = {
   imageOperationToken: 0,
   overlayOperationToken: 0,
   overlayProcessingToken: null,
+  contrast: { brightness: 0, contrast: 0, gamma: 1.0 },
+  contrastKey: "default",
   imageLibrary: {
     images: [],
     total: 0,
@@ -430,6 +493,34 @@ function setImageUrl(imageId) {
   else url.searchParams.delete("image");
   window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
 }
+
+function readViewportFromHash() {
+  try {
+    const hash = window.location.hash.replace(/^#/, "");
+    if (!hash) return null;
+    const params = new URLSearchParams(hash);
+    const x = parseFloat(params.get("x"));
+    const y = parseFloat(params.get("y"));
+    const scale = parseFloat(params.get("scale") || params.get("s") || params.get("zoom"));
+    if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(scale) && scale > 0) {
+      return { x, y, scale };
+    }
+  } catch (e) {}
+  return null;
+}
+
+let updateHashTimeout = null;
+function syncViewportToUrl() {
+  if (!state.image) return;
+  if (updateHashTimeout) clearTimeout(updateHashTimeout);
+  updateHashTimeout = setTimeout(() => {
+    if (!state.image) return;
+    const url = new URL(window.location.href);
+    url.hash = `x=${Math.round(state.view.x)}&y=${Math.round(state.view.y)}&scale=${state.view.scale.toFixed(4)}`;
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }, 400);
+}
+
 
 async function reopenImageFromUrl() {
   const requestedId = new URLSearchParams(window.location.search).get("image");
@@ -903,11 +994,248 @@ function updateServerPathSubmit() {
   els.serverPathSubmit.disabled = busy || !value;
 }
 
+async function loadFileBrowserMounts() {
+  try {
+    const res = await fetch("/api/mounts");
+    if (!res || !res.ok) return;
+    const data = await res.json();
+    state.browserMounts = data.mounts || [];
+    if (state.browserMounts.length > 0 && !state.browserMountId) {
+      state.browserMountId = state.browserMounts[0].id;
+    }
+    renderMountPills();
+    if (state.browserMountId) {
+      void loadFileBrowserDirectory(state.browserMountId, state.browserPath || "");
+    }
+  } catch (err) {
+    // Silently ignore network failures in offline tests
+  }
+}
+
+function renderMountPills() {
+  if (!els.mountPills) return;
+  els.mountPills.innerHTML = "";
+  for (const m of state.browserMounts) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `mount-pill${m.id === state.browserMountId ? " active" : ""}`;
+    btn.textContent = m.label || m.id;
+    btn.addEventListener("click", () => {
+      state.browserMountId = m.id;
+      renderMountPills();
+      void loadFileBrowserDirectory(m.id, "");
+    });
+    els.mountPills.appendChild(btn);
+  }
+}
+
+async function loadFileBrowserDirectory(mountId, path = "") {
+  if (!mountId) return;
+  state.browserMountId = mountId;
+  state.browserPath = path;
+  renderMountPills();
+  if (els.fileBrowserList) {
+    els.fileBrowserList.innerHTML = `<div class="file-browser-loading">Loading directory…</div>`;
+  }
+  try {
+    const res = await fetch(`/api/mounts/${encodeURIComponent(mountId)}/browse?path=${encodeURIComponent(path)}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: "Could not open directory" }));
+      if (els.fileBrowserList) {
+        els.fileBrowserList.innerHTML = `<div class="file-browser-empty"><span>${escapeHtml(err.detail || "Could not read directory")}</span></div>`;
+      }
+      return;
+    }
+    const data = await res.json();
+    state.browserParent = data.parent;
+    state.browserEntries = data.entries || [];
+    renderFileBrowserBreadcrumbs(data.path);
+    renderFileBrowserList();
+    if (els.fileBrowserUp) {
+      els.fileBrowserUp.disabled = data.parent === null || data.parent === undefined;
+    }
+  } catch (err) {
+    if (els.fileBrowserList) {
+      els.fileBrowserList.innerHTML = `<div class="file-browser-empty"><span>Failed to connect to storage.</span></div>`;
+    }
+  }
+}
+
+function renderFileBrowserBreadcrumbs(currentPath) {
+  if (!els.fileBrowserBreadcrumbs) return;
+  els.fileBrowserBreadcrumbs.innerHTML = "";
+  const rootBtn = document.createElement("button");
+  rootBtn.type = "button";
+  rootBtn.className = `breadcrumb-item${!currentPath ? " active" : ""}`;
+  rootBtn.textContent = state.browserMountId;
+  rootBtn.addEventListener("click", () => void loadFileBrowserDirectory(state.browserMountId, ""));
+  els.fileBrowserBreadcrumbs.appendChild(rootBtn);
+
+  if (!currentPath) return;
+  const parts = currentPath.split("/").filter(Boolean);
+  let accumulated = "";
+  for (let i = 0; i < parts.length; i++) {
+    const sep = document.createElement("span");
+    sep.className = "breadcrumb-separator";
+    sep.textContent = "/";
+    els.fileBrowserBreadcrumbs.appendChild(sep);
+
+    accumulated = accumulated ? `${accumulated}/${parts[i]}` : parts[i];
+    const target = accumulated;
+    const isLast = i === parts.length - 1;
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = `breadcrumb-item${isLast ? " active" : ""}`;
+    item.textContent = parts[i];
+    if (!isLast) {
+      item.addEventListener("click", () => void loadFileBrowserDirectory(state.browserMountId, target));
+    }
+    els.fileBrowserBreadcrumbs.appendChild(item);
+  }
+}
+
+function renderFileBrowserList() {
+  if (!els.fileBrowserList) return;
+  els.fileBrowserList.innerHTML = "";
+  const filter = (state.browserFilter || "").toLowerCase().trim();
+  const filtered = state.browserEntries.filter(e => !filter || e.name.toLowerCase().includes(filter));
+
+  if (filtered.length === 0) {
+    els.fileBrowserList.innerHTML = `<div class="file-browser-empty">
+      <svg><use href="#i-folder"></use></svg>
+      <span>No matching images or overlays in this directory</span>
+    </div>`;
+    return;
+  }
+
+  const sorted = [...filtered].sort((a, b) => {
+    if (a.type === "directory" && b.type !== "directory") return -1;
+    if (a.type !== "directory" && b.type === "directory") return 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  const imageFilesCount = state.browserEntries.filter(e => e.type === "file" && IMAGE_EXTENSIONS.has(extensionOf(e.name))).length;
+  if (imageFilesCount >= 3) {
+    const seriesHeader = document.createElement("div");
+    seriesHeader.className = "file-browser-series-banner";
+    seriesHeader.style.cssText = "display:flex; align-items:center; justify-content:space-between; padding:8px 12px; margin-bottom:8px; background:rgba(64,218,206,0.12); border:1px solid rgba(64,218,206,0.3); border-radius:7px;";
+    seriesHeader.innerHTML = `
+      <div style="display:flex; align-items:center; gap:8px; font-size:11.5px; color:#c9e5e3;">
+        <span>🧠</span>
+        <span>Folder contains <strong>${imageFilesCount}</strong> image sections</span>
+      </div>
+      <button class="btn-open-series" data-action="open-current-series">
+        Open as Brain Series
+      </button>
+    `;
+    const openCurrentBtn = seriesHeader.querySelector('[data-action="open-current-series"]');
+    if (openCurrentBtn) {
+      openCurrentBtn.addEventListener("click", () => {
+        closeServerPathDialog();
+        void openBrainSeries(state.browserMountId, state.browserPath);
+      });
+    }
+    els.fileBrowserList.append(seriesHeader);
+  }
+
+  for (const item of sorted) {
+    const row = document.createElement("div");
+    row.className = `file-browser-row${item.type === "directory" ? " is-folder" : ""}`;
+
+    if (item.type === "directory") {
+      const isBrain = Boolean(item.isBrainSeries);
+      row.innerHTML = `
+        <span class="file-icon folder"><svg><use href="#i-folder"></use></svg></span>
+        <span class="file-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
+        <span class="file-size">${isBrain ? "Brain Dataset" : "Folder"}</span>
+        <div class="file-actions">
+          ${isBrain ? `<button class="btn-open-series" data-action="open-series" title="Open entire brain volume in Section Filmstrip">🧠 Open Series</button>` : ""}
+          <button class="button button-ghost compact" data-action="browse-folder">Browse</button>
+        </div>
+      `;
+
+      const seriesBtn = row.querySelector('[data-action="open-series"]');
+      if (seriesBtn) {
+        seriesBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          closeServerPathDialog();
+          void openBrainSeries(state.browserMountId, item.path);
+        });
+      }
+
+      const browseBtn = row.querySelector('[data-action="browse-folder"]');
+      if (browseBtn) {
+        browseBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          void loadFileBrowserDirectory(state.browserMountId, item.path);
+        });
+      }
+
+      row.addEventListener("click", () => void loadFileBrowserDirectory(state.browserMountId, item.path));
+    } else {
+      const ext = extensionOf(item.name);
+      const isImg = IMAGE_EXTENSIONS.has(ext);
+      const isOvl = OVERLAY_EXTENSIONS.has(ext);
+      const iconClass = isImg ? "image" : "overlay";
+      const iconId = isImg ? "#i-image" : "#i-points";
+      const badgeClass = isImg ? "badge-image" : "badge-overlay";
+      const badgeText = item.format || ext.toUpperCase();
+
+      row.innerHTML = `
+        <span class="file-icon ${iconClass}"><svg><use href="${iconId}"></use></svg></span>
+        <span class="file-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
+        <span class="file-badge ${badgeClass}">${escapeHtml(badgeText)}</span>
+        <span class="file-size">${formatBytes(item.size || 0)}</span>
+        <div class="file-actions">
+          ${isImg ? `<button class="button button-primary compact" data-action="open-img">Open Image</button>` : ""}
+          ${isOvl ? `<button class="button button-secondary compact" data-action="add-ovl">Add Overlay</button>` : ""}
+        </div>
+      `;
+
+      const imgBtn = row.querySelector('[data-action="open-img"]');
+      if (imgBtn) {
+        imgBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          closeServerPathDialog();
+          void registerAndOpenServerImage({
+            url: `/api/mounts/${encodeURIComponent(state.browserMountId)}/register`,
+            body: { path: item.path },
+            filename: item.name,
+            errorTitle: "Could not open server image",
+            onError: (err) => toast("Could not open server image", err.message, "error"),
+          });
+        });
+      }
+
+      const ovlBtn = row.querySelector('[data-action="add-ovl"]');
+      if (ovlBtn) {
+        ovlBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          closeServerPathDialog();
+          void openResolvedServerOverlay(
+            {
+              name: item.name,
+              path: item.path,
+              type: "file",
+              kind: "overlay",
+              format: item.format || ext.toUpperCase(),
+              size: item.size || 1000,
+            },
+            state.browserMountId,
+          );
+        });
+      }
+    }
+    els.fileBrowserList.appendChild(row);
+  }
+}
+
 function showServerPathDialog() {
   setServerPathStatus();
   updateServerPathSubmit();
   if (!els.serverPathDialog.open) els.serverPathDialog.showModal();
   els.serverPathInput.focus();
+  void loadFileBrowserMounts();
 }
 
 function invalidateServerPathRequest() {
@@ -1119,13 +1447,28 @@ async function openDemo() {
   }
 }
 
-async function activateImage(metadata) {
-  state.layers.forEach(disposeIndexedLayer);
+async function activateImage(metadata, options = {}) {
+  const preservedOverlays = options.preserveOverlays ? state.layers.filter(l => l.kind !== "base") : [];
+  if (!options.preserveOverlays) {
+    state.layers.forEach(disposeIndexedLayer);
+  }
   state.image = metadata;
   setImageUrl(metadata.id);
   state.tileCache.clear();
   state.overview = null;
   state.overviewLoading = false;
+  overviewGammaCanvas = null;
+  overviewAppliedGamma = 1.0;
+  state.contrast = { brightness: 0, contrast: 0, gamma: 1.0, lut: "normal" };
+  state.contrastKey = "default";
+  state.pins = [];
+  state.isPinning = false;
+  if (els.shell) {
+    els.shell.classList.remove("pinning");
+  }
+  if (els.pinButton) els.pinButton.classList.remove("active");
+  if (els.lutPreset) els.lutPreset.value = "normal";
+
   state.layers = [{
     id: "base",
     kind: "base",
@@ -1134,12 +1477,14 @@ async function activateImage(metadata) {
     opacity: 1,
     color: "#91aab8",
     size: 1,
-  }];
-  state.selectedLayerId = "base";
+  }, ...preservedOverlays];
+  state.selectedLayerId = preservedOverlays.length > 0 ? preservedOverlays[preservedOverlays.length - 1].id : "base";
   els.empty.classList.add("hidden");
   hideProcessing();
   els.shell.classList.add("has-image");
-  [els.zoomIn, els.zoomOut, els.fit, els.reset].forEach((button) => { button.disabled = false; });
+  [els.zoomIn, els.zoomOut, els.fit, els.reset, els.pinButton].forEach((button) => {
+    if (button) button.disabled = false;
+  });
   els.workspaceTitle.textContent = fileStem(metadata.filename);
   els.statusFormat.textContent = metadata.format;
   els.statusDimensions.textContent = `${formatNumber(metadata.width)} × ${formatNumber(metadata.height)}`;
@@ -1149,8 +1494,21 @@ async function activateImage(metadata) {
   renderLayerList();
   updateInspector();
   resizeCanvas();
-  fitImage();
+
+  if (!options.preserveView) {
+    fitImage();
+    const savedView = readViewportFromHash();
+    if (savedView) {
+      state.view = savedView;
+      scheduleRender();
+    }
+  } else {
+    constrainView();
+    scheduleRender();
+  }
+
   loadOverview();
+  void checkImageCompanions(metadata.id);
 }
 
 async function addDemoOverlays(operationToken = state.imageOperationToken) {
@@ -1301,6 +1659,7 @@ function requestTile(level, x, y) {
     entry.attempts += 1;
     entry.retryTimer = null;
     image.decoding = "async";
+    image.crossOrigin = "anonymous";
     image.onload = () => {
       if (state.tileCache.get(key) !== entry || entry.image !== image) return;
       entry.status = "ready";
@@ -1338,7 +1697,181 @@ function scheduleRender() {
   requestAnimationFrame(() => {
     state.renderQueued = false;
     render();
+    syncViewportToUrl();
   });
+}
+
+let currentGammaLUT = null;
+let currentGammaVal = 1.0;
+
+function getGammaLUT(gamma) {
+  if (Math.abs(gamma - 1.0) <= 0.01) {
+    return null;
+  }
+  if (currentGammaLUT && Math.abs(currentGammaVal - gamma) < 0.001) {
+    return currentGammaLUT;
+  }
+  const lut = new Uint8ClampedArray(256);
+  const invGamma = 1 / Math.max(0.05, gamma);
+  for (let i = 0; i < 256; i++) {
+    lut[i] = Math.round(255 * Math.pow(i / 255, invGamma));
+  }
+  currentGammaLUT = lut;
+  currentGammaVal = gamma;
+  return lut;
+}
+
+function getAdjustedTileSource(entry, gamma) {
+  if (!entry || !entry.image) return null;
+  const lut = getGammaLUT(gamma);
+  if (!lut) return entry.image;
+
+  if (entry.gammaCanvas && Math.abs((entry.appliedGamma || 1.0) - gamma) < 0.001) {
+    return entry.gammaCanvas;
+  }
+
+  const width = entry.image.naturalWidth || 256;
+  const height = entry.image.naturalHeight || 256;
+  if (!entry.gammaCanvas) {
+    entry.gammaCanvas = document.createElement("canvas");
+    entry.gammaCanvas.width = width;
+    entry.gammaCanvas.height = height;
+  } else if (entry.gammaCanvas.width !== width || entry.gammaCanvas.height !== height) {
+    entry.gammaCanvas.width = width;
+    entry.gammaCanvas.height = height;
+  }
+
+  const gCtx = entry.gammaCanvas.getContext("2d", { willReadFrequently: true });
+  gCtx.drawImage(entry.image, 0, 0);
+  try {
+    const imgData = gCtx.getImageData(0, 0, width, height);
+    const d = imgData.data;
+    const len = d.length;
+    for (let i = 0; i < len; i += 4) {
+      d[i] = lut[d[i]];
+      d[i + 1] = lut[d[i + 1]];
+      d[i + 2] = lut[d[i + 2]];
+    }
+    gCtx.putImageData(imgData, 0, 0);
+    entry.appliedGamma = gamma;
+    return entry.gammaCanvas;
+  } catch (err) {
+    return entry.image;
+  }
+}
+
+let overviewGammaCanvas = null;
+let overviewAppliedGamma = 1.0;
+
+function getAdjustedOverviewSource(gamma) {
+  if (!state.overview) return null;
+  const lut = getGammaLUT(gamma);
+  if (!lut) return state.overview;
+
+  if (overviewGammaCanvas && Math.abs(overviewAppliedGamma - gamma) < 0.001) {
+    return overviewGammaCanvas;
+  }
+
+  const width = state.overview.naturalWidth || state.overview.width;
+  const height = state.overview.naturalHeight || state.overview.height;
+  if (!width || !height) return state.overview;
+
+  if (!overviewGammaCanvas) {
+    overviewGammaCanvas = document.createElement("canvas");
+    overviewGammaCanvas.width = width;
+    overviewGammaCanvas.height = height;
+  } else if (overviewGammaCanvas.width !== width || overviewGammaCanvas.height !== height) {
+    overviewGammaCanvas.width = width;
+    overviewGammaCanvas.height = height;
+  }
+
+  const oCtx = overviewGammaCanvas.getContext("2d", { willReadFrequently: true });
+  oCtx.drawImage(state.overview, 0, 0);
+  try {
+    const imgData = oCtx.getImageData(0, 0, width, height);
+    const d = imgData.data;
+    const len = d.length;
+    for (let i = 0; i < len; i += 4) {
+      d[i] = lut[d[i]];
+      d[i + 1] = lut[d[i + 1]];
+      d[i + 2] = lut[d[i + 2]];
+    }
+    oCtx.putImageData(imgData, 0, 0);
+    overviewAppliedGamma = gamma;
+    return overviewGammaCanvas;
+  } catch (err) {
+    return state.overview;
+  }
+}
+
+function getCanvasFilter(contrastState) {
+  const { brightness = 0, contrast = 0, lut = "normal" } = contrastState || {};
+  const bPct = Math.max(0, 100 + brightness);
+  const cPct = Math.max(0, 100 + contrast);
+  let baseFilter = `brightness(${bPct}%) contrast(${cPct}%)`;
+
+  switch (lut) {
+    case "invert":
+      return `${baseFilter} invert(100%)`;
+    case "gfp":
+      return `${baseFilter} grayscale(100%) sepia(100%) hue-rotate(80deg) saturate(400%)`;
+    case "rfp":
+      return `${baseFilter} grayscale(100%) sepia(100%) hue-rotate(320deg) saturate(500%)`;
+    case "dapi":
+      return `${baseFilter} grayscale(100%) sepia(100%) hue-rotate(150deg) saturate(400%)`;
+    case "thermal":
+      return `${baseFilter} sepia(100%) saturate(600%) hue-rotate(340deg) contrast(150%)`;
+    case "viridis":
+      return `${baseFilter} sepia(70%) saturate(300%) hue-rotate(110deg)`;
+    default:
+      return (brightness !== 0 || contrast !== 0) ? baseFilter : "none";
+  }
+}
+
+function drawPinsOverlay() {
+  if (!state.pins || state.pins.length === 0) return;
+  ctx.save();
+  for (const pin of state.pins) {
+    const screen = imageToScreen(pin.x, pin.y);
+    if (screen.x < -40 || screen.y < -40 || screen.x > state.viewportWidth + 40 || screen.y > state.viewportHeight + 40) continue;
+
+    ctx.beginPath();
+    ctx.arc(screen.x, screen.y, 8, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255, 145, 0, 0.28)";
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(screen.x, screen.y, 4.5, 0, Math.PI * 2);
+    ctx.fillStyle = pin.color || "#ff9100";
+    ctx.fill();
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    if (pin.label) {
+      ctx.font = "bold 10px system-ui, sans-serif";
+      const metrics = ctx.measureText(pin.label);
+      const w = metrics.width + 10;
+      const h = 17;
+      const lx = screen.x + 8;
+      const ly = screen.y - 8;
+
+      ctx.fillStyle = "rgba(9, 20, 27, 0.92)";
+      ctx.strokeStyle = pin.color || "#ff9100";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(lx, ly - h / 2, w, h, 4);
+      else ctx.rect(lx, ly - h / 2, w, h);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = "#ffffff";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText(pin.label, lx + 5, ly);
+    }
+  }
+  ctx.restore();
 }
 
 function render() {
@@ -1362,9 +1895,14 @@ function render() {
   if (base?.visible) {
     ctx.save();
     ctx.globalAlpha = base.opacity;
-    if (state.overview) {
+    const filterStr = getCanvasFilter(state.contrast);
+    if (filterStr !== "none") {
+      ctx.filter = filterStr;
+    }
+    const overviewSource = getAdjustedOverviewSource(state.contrast.gamma);
+    if (overviewSource) {
       ctx.imageSmoothingEnabled = true;
-      ctx.drawImage(state.overview, state.view.x, state.view.y, imageWidth, imageHeight);
+      ctx.drawImage(overviewSource, state.view.x, state.view.y, imageWidth, imageHeight);
     }
     drawVisibleTiles();
     ctx.restore();
@@ -1373,6 +1911,10 @@ function render() {
   }
 
   renderOverlays();
+  if (state.pins && state.pins.length > 0) {
+    drawPinsOverlay();
+  }
+
   ctx.strokeStyle = "rgba(137, 165, 179, .18)";
   ctx.lineWidth = 1;
   ctx.strokeRect(Math.round(state.view.x) + 0.5, Math.round(state.view.y) + 0.5, Math.round(imageWidth), Math.round(imageHeight));
@@ -1395,30 +1937,64 @@ function drawVisibleTiles() {
   const yStart = Math.max(0, Math.floor((minY * dims.scale) / tiles.height));
   const xEnd = Math.min(Math.ceil(dims.width / tiles.width) - 1, Math.floor((maxX * dims.scale) / tiles.width));
   const yEnd = Math.min(Math.ceil(dims.height / tiles.height) - 1, Math.floor((maxY * dims.scale) / tiles.height));
-  let requested = 0;
-  let loaded = 0;
+
+  const centerX = (xStart + xEnd) / 2;
+  const centerY = (yStart + yEnd) / 2;
+  const tileCoords = [];
   for (let y = yStart; y <= yEnd; y += 1) {
     for (let x = xStart; x <= xEnd; x += 1) {
-      requested += 1;
-      const entry = requestTile(level, x, y);
-      if (entry.status !== "ready") continue;
+      tileCoords.push({ x, y, dist: (x - centerX) ** 2 + (y - centerY) ** 2 });
+    }
+  }
+  // Center-outward priority sorting: closest to viewport center loads first
+  tileCoords.sort((a, b) => a.dist - b.dist);
+
+  let requested = 0;
+  let loaded = 0;
+
+  for (const { x, y } of tileCoords) {
+    requested += 1;
+    const entry = requestTile(level, x, y);
+    const levelX = x * tiles.width;
+    const levelY = y * tiles.height;
+    const sourceWidth = Math.min(tiles.width, dims.width - levelX);
+    const sourceHeight = Math.min(tiles.height, dims.height - levelY);
+    const imageX = levelX / dims.scale;
+    const imageY = levelY / dims.scale;
+    const destination = imageToScreen(imageX, imageY);
+    const destinationWidth = (sourceWidth / dims.scale) * state.view.scale;
+    const destinationHeight = (sourceHeight / dims.scale) * state.view.scale;
+
+    if (entry.status === "ready") {
       loaded += 1;
-      const levelX = x * tiles.width;
-      const levelY = y * tiles.height;
-      const sourceWidth = Math.min(tiles.width, dims.width - levelX);
-      const sourceHeight = Math.min(tiles.height, dims.height - levelY);
-      const imageX = levelX / dims.scale;
-      const imageY = levelY / dims.scale;
-      const destination = imageToScreen(imageX, imageY);
-      const destinationWidth = (sourceWidth / dims.scale) * state.view.scale;
-      const destinationHeight = (sourceHeight / dims.scale) * state.view.scale;
       ctx.imageSmoothingEnabled = true;
-      ctx.drawImage(entry.image, destination.x, destination.y, destinationWidth + 0.35, destinationHeight + 0.35);
-      if (state.showTileGrid) {
-        ctx.strokeStyle = "rgba(85, 226, 214, .38)";
-        ctx.lineWidth = 0.75;
-        ctx.strokeRect(destination.x + 0.5, destination.y + 0.5, destinationWidth - 1, destinationHeight - 1);
+      const tileSource = getAdjustedTileSource(entry, state.contrast.gamma);
+      ctx.drawImage(tileSource, destination.x, destination.y, destinationWidth + 0.35, destinationHeight + 0.35);
+    } else if (level > 0) {
+      // Ancestor fallback: render scaled parent tile subregion while loading to prevent black flashes
+      const parentKey = `${state.image.id}:${level - 1}:${Math.floor(x / 2)}:${Math.floor(y / 2)}`;
+      const parentEntry = state.tileCache.get(parentKey);
+      if (parentEntry?.status === "ready" && parentEntry.image) {
+        const subX = (x % 2) * (tiles.width / 2);
+        const subY = (y % 2) * (tiles.height / 2);
+        const subW = Math.min(tiles.width / 2, (parentEntry.image.naturalWidth || tiles.width) - subX);
+        const subH = Math.min(tiles.height / 2, (parentEntry.image.naturalHeight || tiles.height) - subY);
+        if (subW > 0 && subH > 0) {
+          ctx.imageSmoothingEnabled = true;
+          const parentSource = getAdjustedTileSource(parentEntry, state.contrast.gamma);
+          ctx.drawImage(
+            parentSource,
+            subX, subY, subW, subH,
+            destination.x, destination.y, destinationWidth + 0.35, destinationHeight + 0.35
+          );
+        }
       }
+    }
+
+    if (state.showTileGrid) {
+      ctx.strokeStyle = "rgba(85, 226, 214, .38)";
+      ctx.lineWidth = 0.75;
+      ctx.strokeRect(destination.x + 0.5, destination.y + 0.5, destinationWidth - 1, destinationHeight - 1);
     }
   }
   state.tileStats = { requested, loaded };
@@ -1449,6 +2025,7 @@ function loadOverview() {
     if (state.image?.id !== sourceImageId) return;
     const image = new Image();
     image.decoding = "async";
+    image.crossOrigin = "anonymous";
     image.onload = () => {
       if (state.image?.id !== sourceImageId) return;
       overviewCtx.drawImage(image, x * tiles.width, y * tiles.height);
@@ -1456,6 +2033,7 @@ function loadOverview() {
       remaining -= 1;
       if (loaded > 0) {
         state.overview = overview;
+        overviewAppliedGamma = 0;
         scheduleRender();
       }
       if (remaining === 0) state.overviewLoading = false;
@@ -1479,19 +2057,45 @@ function loadOverview() {
 }
 
 function transformedPoint(layer, x, y) {
+  const scaleX = layer.scaleX !== undefined ? layer.scaleX : 1;
+  const scaleY = layer.scaleY !== undefined ? layer.scaleY : 1;
+  const offsetX = layer.offsetX || 0;
+  const offsetY = layer.offsetY || 0;
+  if (scaleY === 1 && layer.flipY && !layer.autoFitted) {
+    return {
+      x: x * scaleX + offsetX,
+      y: (state.image ? state.image.height - y : y) + offsetY,
+    };
+  }
   return {
-    x: x + layer.offsetX,
-    y: (layer.flipY ? state.image.height - y : y) + layer.offsetY,
+    x: x * scaleX + offsetX,
+    y: y * scaleY + offsetY,
   };
 }
 
 function inverseOverlayBounds(layer, bounds, imageHeight = state.image?.height) {
-  const sourceX1 = Number(bounds.minX) - layer.offsetX;
-  const sourceX2 = Number(bounds.maxX) - layer.offsetX;
-  const displayY1 = Number(bounds.minY) - layer.offsetY;
-  const displayY2 = Number(bounds.maxY) - layer.offsetY;
-  const sourceY1 = layer.flipY ? Number(imageHeight) - displayY1 : displayY1;
-  const sourceY2 = layer.flipY ? Number(imageHeight) - displayY2 : displayY2;
+  const scaleX = layer.scaleX !== undefined ? layer.scaleX : 1;
+  const scaleY = layer.scaleY !== undefined ? layer.scaleY : 1;
+  const offsetX = layer.offsetX || 0;
+  const offsetY = layer.offsetY || 0;
+  if (scaleY === 1 && layer.flipY && !layer.autoFitted) {
+    const sourceX1 = (Number(bounds.minX) - offsetX) / scaleX;
+    const sourceX2 = (Number(bounds.maxX) - offsetX) / scaleX;
+    const displayY1 = Number(bounds.minY) - offsetY;
+    const displayY2 = Number(bounds.maxY) - offsetY;
+    const sourceY1 = Number(imageHeight) - displayY1;
+    const sourceY2 = Number(imageHeight) - displayY2;
+    return {
+      minX: Math.min(sourceX1, sourceX2),
+      minY: Math.min(sourceY1, sourceY2),
+      maxX: Math.max(sourceX1, sourceX2),
+      maxY: Math.max(sourceY1, sourceY2),
+    };
+  }
+  const sourceX1 = (Number(bounds.minX) - offsetX) / scaleX;
+  const sourceX2 = (Number(bounds.maxX) - offsetX) / scaleX;
+  const sourceY1 = (Number(bounds.minY) - offsetY) / scaleY;
+  const sourceY2 = (Number(bounds.maxY) - offsetY) / scaleY;
   return {
     minX: Math.min(sourceX1, sourceX2),
     minY: Math.min(sourceY1, sourceY2),
@@ -1673,32 +2277,115 @@ function renderOverlays() {
   }
 }
 
+const SWC_TYPE_COLORS = {
+  1: "#38d1c4", // Soma (cyan)
+  2: "#ff5252", // Axon (red)
+  3: "#e040fb", // Basal Dendrite (magenta)
+  4: "#69f0ae", // Apical Dendrite (green)
+  5: "#ff9100", // Fork point (orange)
+  6: "#ffd600", // End point (yellow)
+  7: "#ffd740", // Custom/other (gold)
+};
+
 function renderSwc(layer) {
-  ctx.beginPath();
-  for (const node of layer.nodes) {
-    if (node.parent < 0) continue;
-    const parent = layer.nodeMap.get(node.parent);
-    if (!parent) continue;
-    const startImage = transformedPoint(layer, parent.x, parent.y);
-    const endImage = transformedPoint(layer, node.x, node.y);
-    const start = imageToScreen(startImage.x, startImage.y);
-    const end = imageToScreen(endImage.x, endImage.y);
-    ctx.moveTo(start.x, start.y);
-    ctx.lineTo(end.x, end.y);
-  }
-  ctx.stroke();
-  const step = layer.nodes.length > 80_000 ? Math.ceil(layer.nodes.length / 80_000) : 1;
+  const isAuto = (layer.colorMode || "auto") === "auto";
+  const hidden = layer.hiddenTypes || new Set();
+  const scale = state.view.scale;
+  const viewX = state.view.x;
+  const viewY = state.view.y;
+  const offsetX = layer.offsetX;
+  const offsetY = layer.offsetY;
+  const flipY = layer.flipY;
+  const imgHeight = state.image?.height || 0;
+  const vpW = state.viewportWidth + 10;
+  const vpH = state.viewportHeight + 10;
   const radius = Math.max(1.3, layer.size * 0.65);
-  ctx.beginPath();
-  for (let index = 0; index < layer.nodes.length; index += step) {
-    const node = layer.nodes[index];
-    const pointImage = transformedPoint(layer, node.x, node.y);
-    const point = imageToScreen(pointImage.x, pointImage.y);
-    if (point.x < -10 || point.y < -10 || point.x > state.viewportWidth + 10 || point.y > state.viewportHeight + 10) continue;
-    ctx.moveTo(point.x + radius, point.y);
-    ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+
+  if (isAuto) {
+    const typeSegments = new Map();
+    for (const node of layer.nodes) {
+      if (node.parent < 0) continue;
+      const type = node.type || 7;
+      const typeKey = String(type);
+      if (hidden.has(typeKey) || (type > 4 && hidden.has("other"))) continue;
+
+      const parent = layer.nodeMap.get(node.parent);
+      if (!parent) continue;
+      const startX = viewX + (parent.x + offsetX) * scale;
+      const startY = viewY + ((flipY ? imgHeight - parent.y : parent.y) + offsetY) * scale;
+      const endX = viewX + (node.x + offsetX) * scale;
+      const endY = viewY + ((flipY ? imgHeight - node.y : node.y) + offsetY) * scale;
+
+      if (!typeSegments.has(type)) typeSegments.set(type, []);
+      typeSegments.get(type).push(startX, startY, endX, endY);
+    }
+
+    for (const [type, coords] of typeSegments.entries()) {
+      ctx.beginPath();
+      ctx.strokeStyle = SWC_TYPE_COLORS[type] || SWC_TYPE_COLORS[7];
+      ctx.lineWidth = layer.size;
+      for (let i = 0; i < coords.length; i += 4) {
+        ctx.moveTo(coords[i], coords[i + 1]);
+        ctx.lineTo(coords[i + 2], coords[i + 3]);
+      }
+      ctx.stroke();
+    }
+
+    const step = layer.nodes.length > 80_000 ? Math.ceil(layer.nodes.length / 80_000) : 1;
+    const typeNodes = new Map();
+    for (let index = 0; index < layer.nodes.length; index += step) {
+      const node = layer.nodes[index];
+      const type = node.type || 7;
+      const typeKey = String(type);
+      if (hidden.has(typeKey) || (type > 4 && hidden.has("other"))) continue;
+
+      const ptX = viewX + (node.x + offsetX) * scale;
+      const ptY = viewY + ((flipY ? imgHeight - node.y : node.y) + offsetY) * scale;
+      if (ptX < -10 || ptY < -10 || ptX > vpW || ptY > vpH) continue;
+
+      if (!typeNodes.has(type)) typeNodes.set(type, []);
+      typeNodes.get(type).push(ptX, ptY);
+    }
+
+    for (const [type, pts] of typeNodes.entries()) {
+      ctx.beginPath();
+      ctx.fillStyle = SWC_TYPE_COLORS[type] || SWC_TYPE_COLORS[7];
+      for (let i = 0; i < pts.length; i += 2) {
+        ctx.moveTo(pts[i] + radius, pts[i + 1]);
+        ctx.arc(pts[i], pts[i + 1], radius, 0, Math.PI * 2);
+      }
+      ctx.fill();
+    }
+  } else {
+    ctx.strokeStyle = layer.color;
+    ctx.fillStyle = layer.color;
+    ctx.lineWidth = layer.size;
+    ctx.beginPath();
+    for (const node of layer.nodes) {
+      if (node.parent < 0) continue;
+      const parent = layer.nodeMap.get(node.parent);
+      if (!parent) continue;
+      const startX = viewX + (parent.x + offsetX) * scale;
+      const startY = viewY + ((flipY ? imgHeight - parent.y : parent.y) + offsetY) * scale;
+      const endX = viewX + (node.x + offsetX) * scale;
+      const endY = viewY + ((flipY ? imgHeight - node.y : node.y) + offsetY) * scale;
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(endX, endY);
+    }
+    ctx.stroke();
+
+    const step = layer.nodes.length > 80_000 ? Math.ceil(layer.nodes.length / 80_000) : 1;
+    ctx.beginPath();
+    for (let index = 0; index < layer.nodes.length; index += step) {
+      const node = layer.nodes[index];
+      const ptX = viewX + (node.x + offsetX) * scale;
+      const ptY = viewY + ((flipY ? imgHeight - node.y : node.y) + offsetY) * scale;
+      if (ptX < -10 || ptY < -10 || ptX > vpW || ptY > vpH) continue;
+      ctx.moveTo(ptX + radius, ptY);
+      ctx.arc(ptX, ptY, radius, 0, Math.PI * 2);
+    }
+    ctx.fill();
   }
-  ctx.fill();
 }
 
 function renderJson(layer) {
@@ -1707,28 +2394,34 @@ function renderJson(layer) {
     const segments = layer.geometrySegments;
     if (!segments?.length) return;
     const scale = state.view.scale;
-    const screenX = (x) => state.view.x + (x + layer.offsetX) * scale;
-    const screenY = (y) => state.view.y + ((layer.flipY ? state.image.height - y : y) + layer.offsetY) * scale;
+    const viewX = state.view.x;
+    const viewY = state.view.y;
+    const offsetX = layer.offsetX;
+    const offsetY = layer.offsetY;
+    const flipY = layer.flipY;
+    const imgHeight = state.image.height;
+    const vpW = state.viewportWidth + 8;
+    const vpH = state.viewportHeight + 8;
+
     ctx.beginPath();
     for (let index = 0; index < segments.length; index += 4) {
       if (segments[index] === segments[index + 2] && segments[index + 1] === segments[index + 3]) continue;
-      const x1 = screenX(segments[index]);
-      const y1 = screenY(segments[index + 1]);
-      const x2 = screenX(segments[index + 2]);
-      const y2 = screenY(segments[index + 3]);
-      if ((x1 < -8 && x2 < -8) || (y1 < -8 && y2 < -8)
-        || (x1 > state.viewportWidth + 8 && x2 > state.viewportWidth + 8)
-        || (y1 > state.viewportHeight + 8 && y2 > state.viewportHeight + 8)) continue;
+      const x1 = viewX + (segments[index] + offsetX) * scale;
+      const y1 = viewY + ((flipY ? imgHeight - segments[index + 1] : segments[index + 1]) + offsetY) * scale;
+      const x2 = viewX + (segments[index + 2] + offsetX) * scale;
+      const y2 = viewY + ((flipY ? imgHeight - segments[index + 3] : segments[index + 3]) + offsetY) * scale;
+      if ((x1 < -8 && x2 < -8) || (y1 < -8 && y2 < -8) || (x1 > vpW && x2 > vpW) || (y1 > vpH && y2 > vpH)) continue;
       ctx.moveTo(x1, y1);
       ctx.lineTo(x2, y2);
     }
     ctx.stroke();
+
     const radius = Math.max(1.2, layer.size * 0.7);
     ctx.beginPath();
     for (let index = 0; index < segments.length; index += 4) {
       if (segments[index] !== segments[index + 2] || segments[index + 1] !== segments[index + 3]) continue;
-      const x = screenX(segments[index]);
-      const y = screenY(segments[index + 1]);
+      const x = viewX + (segments[index] + offsetX) * scale;
+      const y = viewY + ((flipY ? imgHeight - segments[index + 1] : segments[index + 1]) + offsetY) * scale;
       if (x < -radius || y < -radius || x > state.viewportWidth + radius || y > state.viewportHeight + radius) continue;
       ctx.moveTo(x + radius, y);
       ctx.arc(x, y, radius, 0, Math.PI * 2);
@@ -1781,18 +2474,23 @@ function updateViewportUi() {
   const zoom = state.view.scale * 100;
   const zoomLabel = zoom < 0.1 ? `${zoom.toFixed(2)}%` : zoom < 10 ? `${zoom.toFixed(1)}%` : `${Math.round(zoom)}%`;
   els.toolbarZoom.textContent = zoomLabel;
-  els.statusZoom.textContent = zoomLabel;
+  if (els.statusZoom) els.statusZoom.textContent = zoomLabel;
   const level = deepZoomLevel();
-  els.resolutionLabel.textContent = `Pyramid level ${level} / ${state.image.maxLevel}`;
+  if (els.resolutionLabel && state.image?.maxLevel) {
+    els.resolutionLabel.textContent = `Pyramid level ${level} / ${state.image.maxLevel}`;
+  }
   const nicePixels = niceScaleDistance(105 / state.view.scale);
   const barWidth = Math.max(44, nicePixels * state.view.scale);
-  els.scaleBar.style.width = `${barWidth}px`;
-  els.scaleLabel.textContent = `${formatNumber(nicePixels)} px`;
-  const { requested, loaded } = state.tileStats;
-  els.tileStatus.classList.toggle("loading", requested > loaded);
-  if (requested === 0) els.tileStatus.lastChild.textContent = "Base layer hidden";
-  else if (loaded < requested) els.tileStatus.lastChild.textContent = `Loading tiles ${loaded}/${requested}`;
-  else els.tileStatus.lastChild.textContent = `${loaded} visible tile${loaded === 1 ? "" : "s"} · cached`;
+  if (els.scaleBar) els.scaleBar.style.width = `${barWidth}px`;
+  if (els.scaleLabel) els.scaleLabel.textContent = `${formatNumber(nicePixels)} px`;
+  if (els.tileStatus) {
+    const { requested, loaded } = state.tileStats;
+    els.tileStatus.classList.toggle("loading", requested > loaded);
+    const textNode = els.tileStatus.lastChild || els.tileStatus;
+    if (requested === 0) textNode.textContent = "Base layer hidden";
+    else if (loaded < requested) textNode.textContent = `Loading tiles ${loaded}/${requested}`;
+    else textNode.textContent = `${loaded} visible tile${loaded === 1 ? "" : "s"} · cached`;
+  }
 }
 
 function niceScaleDistance(target) {
@@ -1815,8 +2513,16 @@ function drawMinimap() {
   const drawHeight = state.image.height * scale;
   const x = (width - drawWidth) / 2;
   const y = (height - drawHeight) / 2;
-  if (state.overview) miniCtx.drawImage(state.overview, x, y, drawWidth, drawHeight);
-  else {
+  const miniOverview = getAdjustedOverviewSource(state.contrast.gamma);
+  if (miniOverview) {
+    miniCtx.save();
+    const filterStr = getCanvasFilter(state.contrast);
+    if (filterStr !== "none") {
+      miniCtx.filter = filterStr;
+    }
+    miniCtx.drawImage(miniOverview, x, y, drawWidth, drawHeight);
+    miniCtx.restore();
+  } else {
     miniCtx.fillStyle = "#13232d";
     miniCtx.fillRect(x, y, drawWidth, drawHeight);
   }
@@ -2010,7 +2716,8 @@ function addSwcLayer(name, text, notify = true) {
   const parsed = parseSwc(text);
   const layer = {
     id: crypto.randomUUID(), kind: "swc", name, visible: true, opacity: 0.95,
-    color: nextLayerColor("swc"), size: 2, offsetX: 0, offsetY: 0, flipY: false, ...parsed,
+    color: nextLayerColor("swc"), colorMode: "auto", hiddenTypes: new Set(),
+    size: 2, offsetX: 0, offsetY: 0, flipY: false, ...parsed,
   };
   state.layers.push(layer);
   renderLayerList();
@@ -2027,7 +2734,12 @@ function addJsonLayer(name, text, notify = true, featureLimit = MAX_FEATURES) {
   const layer = {
     id: crypto.randomUUID(), kind: "json", name, visible: true, opacity: 0.86,
     color: nextLayerColor("json"), size: 3, ...parsed,
-    offsetX: 0, offsetY: alignment.offsetY, flipY: alignment.flipY, alignmentMode: alignment.mode,
+    scaleX: 1,
+    scaleY: 1,
+    offsetX: 0,
+    offsetY: alignment.offsetY,
+    flipY: Boolean(alignment.flipY),
+    alignmentMode: alignment.mode,
   };
   state.layers.push(layer);
   renderLayerList();
@@ -2106,8 +2818,12 @@ function addIndexedJsonLayer(metadata, notify = true) {
     opacity: 0.86,
     color: nextLayerColor("json"),
     size: 2,
+    scaleX: 1,
+    scaleY: 1,
     offsetX: 0,
     offsetY: alignment.offsetY,
+    flipY: Boolean(alignment.flipY),
+    alignmentMode: alignment.mode,
     flipY: alignment.flipY,
     alignmentMode: alignment.mode,
     points: [],
@@ -2164,16 +2880,151 @@ function renderLayerList() {
   els.layersEmpty.classList.toggle("hidden", state.layers.length > 0);
   els.layerList.classList.toggle("hidden", state.layers.length === 0);
   els.layerCount.textContent = state.layers.length;
+  const overlayCount = state.layers.filter((l) => l.kind !== "base").length;
+  if (els.clearAllOverlaysBtn) els.clearAllOverlaysBtn.classList.toggle("hidden", overlayCount === 0);
+  const hasSeries = Boolean(state.brainSeries && state.brainSeries.slices?.length > 0);
+  if (els.layersSectionSync) els.layersSectionSync.classList.toggle("hidden", !hasSeries);
+
   els.layerList.innerHTML = state.layers.map((layer) => {
     const icon = layer.kind === "base" ? "i-image" : layer.kind === "swc" ? "i-network" : "i-points";
     const eye = layer.visible ? "i-eye" : "i-eye-off";
     return `<div class="layer-item ${layer.id === state.selectedLayerId ? "selected" : ""} ${layer.visible ? "" : "is-hidden"}" data-layer-id="${layer.id}">
       <span class="layer-symbol ${layer.kind === "base" ? "base" : ""}" style="--layer-color:${layer.color}">${iconUse(icon)}</span>
       <span class="layer-copy"><strong title="${escapeHtml(layer.name)}">${escapeHtml(layer.name)}</strong><span>${escapeHtml(layerTypeLabel(layer))}</span></span>
+      ${layer.kind !== "base" ? `<button class="icon-button compact align-layer-button" data-action="align" title="Align overlay (Flip Y)">🔄</button>` : ""}
       <button class="icon-button visibility-button" data-action="visibility" title="${layer.visible ? "Hide" : "Show"} layer">${iconUse(eye)}</button>
       <span class="layer-opacity">${Math.round(layer.opacity * 100)}%</span>
     </div>`;
   }).join("");
+  renderCompanionsCard();
+}
+
+async function checkImageCompanions(imageId) {
+  if (!imageId) return;
+  try {
+    const response = await fetch(`/api/images/${encodeURIComponent(imageId)}/companions`);
+    if (!response.ok) return;
+    const data = await response.json();
+    if (state.image?.id !== imageId) return;
+    state.companions = Array.isArray(data?.companions) ? data.companions : [];
+    renderCompanionsCard();
+
+    // Auto-discover and populate brain series filmstrip if not already loaded for this series
+    if (data?.brainSeries) {
+      if (!state.brainSeries || state.brainSeries.brainId !== data.brainSeries.brainId) {
+        void openBrainSeries(data.brainSeries.mountId, data.brainSeries.path, undefined, false);
+      } else {
+        const sliceIdx = state.brainSeries.slices.findIndex(s => s.filename === state.image?.filename || (state.image?.filename && s.filename && state.image.filename.replace(/(_lossy|_lossless)/i, "") === s.filename.replace(/(_lossy|_lossless)/i, "")));
+        if (sliceIdx !== -1 && sliceIdx !== state.brainSeries.activeSliceIndex) {
+          state.brainSeries.activeSliceIndex = sliceIdx;
+          renderFilmstrip();
+        }
+      }
+    }
+  } catch {
+    // Non-blocking companion query
+  }
+}
+
+function availableCompanions() {
+  const loadedNames = new Set(state.layers.map((l) => l.name));
+  return state.companions.filter((c) => !loadedNames.has(c.filename));
+}
+
+function renderCompanionsCard() {
+  if (!els.companionOverlayCard) return;
+  const available = availableCompanions();
+  if (!state.image || available.length === 0) {
+    els.companionOverlayCard.classList.add("hidden");
+    return;
+  }
+
+  els.companionOverlayCard.classList.remove("hidden");
+  els.companionCount.textContent = `${available.length} found`;
+
+  els.companionList.innerHTML = available.slice(0, 3).map((comp) => {
+    return `<div class="companion-item">
+      <div class="companion-item-info">
+        <span class="companion-item-name" title="${escapeHtml(comp.filename)}">${escapeHtml(comp.filename)}</span>
+        <span class="companion-item-meta">${escapeHtml(comp.typeLabel)} · ${formatBytes(comp.size)}</span>
+      </div>
+      <button class="companion-load-btn" data-companion-file="${escapeHtml(comp.filename)}" title="Load ${escapeHtml(comp.filename)}">
+        <svg aria-hidden="true" style="width:12px;height:12px"><use href="#i-plus"></use></svg>
+        <span>Load</span>
+      </button>
+    </div>`;
+  }).join("");
+
+  $$(".companion-load-btn", els.companionList).forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const filename = btn.getAttribute("data-companion-file");
+      const comp = state.companions.find((c) => c.filename === filename);
+      if (!comp) return;
+      btn.disabled = true;
+      btn.textContent = "Loading…";
+      await loadCompanionOverlay(comp);
+    });
+  });
+}
+
+async function loadCompanionOverlay(comp) {
+  if (comp.isDemo) {
+    if (comp.kind === "swc") {
+      const text = await fetch("/demo.swc").then(r => r.text());
+      addSwcLayer(comp.filename, text, true);
+    } else {
+      const text = await fetch("/demo-points.json").then(r => r.text());
+      addJsonLayer(comp.filename, text, true);
+    }
+    renderCompanionsCard();
+    return true;
+  }
+  const result = await openResolvedServerOverlay(
+    { name: comp.filename, path: comp.path, size: comp.size },
+    comp.mountId,
+  );
+  renderCompanionsCard();
+  return result;
+}
+
+function openCompanionPicker() {
+  if (!els.companionPickerDialog) return;
+  const available = availableCompanions();
+  if (available.length === 0) {
+    showServerPathDialog();
+    return;
+  }
+
+  els.companionPickerList.innerHTML = available.map((comp) => {
+    const icon = comp.kind === "swc" ? "i-network" : "i-points";
+    return `<div class="companion-picker-row">
+      <div style="display:flex; align-items:center; gap:10px; min-width:0; flex:1;">
+        <span class="layer-symbol" style="width:28px;height:28px;"><svg style="width:15px;height:15px;"><use href="#${icon}"></use></svg></span>
+        <div style="min-width:0; flex:1;">
+          <strong style="display:block; font-size:12px; color:#d1dfe6; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(comp.filename)}</strong>
+          <span style="font-size:10px; color:#6d8694;">${escapeHtml(comp.typeLabel)} · ${formatBytes(comp.size)}</span>
+        </div>
+      </div>
+      <button class="button button-secondary companion-picker-item-load" data-companion-file="${escapeHtml(comp.filename)}">
+        Load Overlay
+      </button>
+    </div>`;
+  }).join("");
+
+  $$(".companion-picker-item-load", els.companionPickerList).forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const filename = btn.getAttribute("data-companion-file");
+      const comp = state.companions.find((c) => c.filename === filename);
+      if (!comp) return;
+      btn.disabled = true;
+      btn.textContent = "Loading…";
+      await loadCompanionOverlay(comp);
+      openCompanionPicker();
+    });
+  });
+
+  els.companionPickerDialog.showModal();
 }
 
 function selectedLayer() {
@@ -2230,7 +3081,32 @@ function updateInspector() {
   els.inspectorContent.classList.toggle("hidden", !layer);
   if (!layer) return;
   const overlay = layer.kind !== "base";
+  const isBase = layer.kind === "base";
+  const isSwc = layer.kind === "swc";
   $$(".overlay-only", els.inspectorContent).forEach((element) => element.classList.toggle("hidden", !overlay));
+  $$(".base-only", els.inspectorContent).forEach((element) => element.classList.toggle("hidden", !isBase));
+  $$(".swc-only", els.inspectorContent).forEach((element) => element.classList.toggle("hidden", !isSwc));
+  if (isSwc) {
+    if (els.swcColorMode) els.swcColorMode.value = layer.colorMode || "auto";
+    if (els.swcCompartments) {
+      const hidden = layer.hiddenTypes || new Set();
+      $$("[data-swc-type]", els.swcCompartments).forEach((checkbox) => {
+        const type = checkbox.getAttribute("data-swc-type");
+        checkbox.checked = !hidden.has(type);
+      });
+    }
+  }
+  if (isBase && els.brightnessRange && els.contrastRange && els.gammaRange) {
+    els.brightnessRange.value = state.contrast.brightness;
+    els.brightnessOutput.textContent = `${state.contrast.brightness > 0 ? "+" : ""}${state.contrast.brightness}%`;
+    els.contrastRange.value = state.contrast.contrast;
+    els.contrastOutput.textContent = `${state.contrast.contrast > 0 ? "+" : ""}${state.contrast.contrast}%`;
+    els.gammaRange.value = Math.round(state.contrast.gamma * 100);
+    els.gammaOutput.textContent = state.contrast.gamma.toFixed(1);
+    els.brightnessRange.style.setProperty("--range-progress", `${((state.contrast.brightness + 100) / 200) * 100}%`);
+    els.contrastRange.style.setProperty("--range-progress", `${((state.contrast.contrast + 100) / 200) * 100}%`);
+    els.gammaRange.style.setProperty("--range-progress", `${((els.gammaRange.value - 20) / 280) * 100}%`);
+  }
   els.selectedName.textContent = layer.name;
   els.selectedType.textContent = layerTypeLabel(layer);
   els.selectedSwatch.style.setProperty("--swatch", layer.color);
@@ -2241,10 +3117,25 @@ function updateInspector() {
   if (overlay) {
     els.colorInput.value = layer.color;
     els.colorValue.textContent = layer.color.toUpperCase();
-    els.sizeOutput.textContent = `${layer.size.toFixed(layer.size % 1 ? 1 : 0)} px`;
-    els.offsetX.value = layer.offsetX;
-    els.offsetY.value = layer.offsetY;
-    els.flipY.checked = layer.flipY;
+    if (els.offsetX) els.offsetX.value = layer.offsetX;
+    if (els.offsetY) els.offsetY.value = layer.offsetY;
+    if (els.flipY) els.flipY.checked = layer.flipY;
+    if (els.alignOverlayButton) {
+      els.alignOverlayButton.classList.toggle("is-flipped", !!layer.flipY);
+    }
+    if (els.overlayScaleDisplay) {
+      const curScale = Math.abs(layer.scaleX !== undefined ? layer.scaleX : 1);
+      els.overlayScaleDisplay.textContent = `${Math.round(curScale * 100)}%`;
+    }
+    if (els.alignmentOrientationLabel) {
+      if (layer.autoFitted) {
+        els.alignmentOrientationLabel.textContent = `Auto-Fitted · Scale: ${(Math.abs(layer.scaleX || 1) * 100).toFixed(0)}%${(layer.scaleY || 1) < 0 ? " (Flipped Y)" : ""}`;
+      } else if ((layer.scaleY !== undefined && layer.scaleY < 0) || layer.flipY || layer.alignmentMode === "negative-y") {
+        els.alignmentOrientationLabel.textContent = `1:1 Native · Inverted Y (${(Math.abs(layer.scaleX || 1) * 100).toFixed(0)}%)`;
+      } else {
+        els.alignmentOrientationLabel.textContent = `1:1 Native · Standard (${(Math.abs(layer.scaleX || 1) * 100).toFixed(0)}%)`;
+      }
+    }
     const ratio = outsideRatio(layer);
     const warning = ratio > 0.25;
     els.boundsNote.classList.toggle("warning", warning);
@@ -2369,12 +3260,219 @@ els.grid.addEventListener("click", () => {
   scheduleRender();
 });
 els.minimapClose.addEventListener("click", () => els.minimap.classList.add("hidden"));
+function layerBounds(layer) {
+  if (!layer) return null;
+  if (layer.bounds && Number.isFinite(Number(layer.bounds.minX)) && Number.isFinite(Number(layer.bounds.maxX))) {
+    return {
+      minX: Number(layer.bounds.minX),
+      minY: Number(layer.bounds.minY),
+      maxX: Number(layer.bounds.maxX),
+      maxY: Number(layer.bounds.maxY),
+    };
+  }
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const update = (x, y) => {
+    if (Number.isFinite(x) && Number.isFinite(y)) {
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  };
+  if (layer.kind === "swc" && layer.nodes) {
+    layer.nodes.forEach((n) => update(n.x, n.y));
+  } else if (layer.polygons) {
+    layer.polygons.forEach((p) => p.coordinates.forEach(([x, y]) => update(x, y)));
+  }
+  if (layer.lines) {
+    layer.lines.forEach((l) => l.coordinates.forEach(([x, y]) => update(x, y)));
+  }
+  if (layer.points) {
+    layer.points.forEach((p) => update(p.x, p.y));
+  }
+  if (Number.isFinite(minX) && Number.isFinite(maxX) && minX <= maxX && minY <= maxY) {
+    return { minX, minY, maxX, maxY };
+  }
+  return null;
+}
+
+function autoFitToImage(layer = selectedLayer()) {
+  if (!layer || layer.kind === "base" || !state.image) return;
+  const bounds = layerBounds(layer);
+  if (!bounds) {
+    toast("Alignment Warning", "No coordinate bounds found for this overlay.", "warning");
+    return;
+  }
+
+  const ovWidth = Math.max(1, bounds.maxX - bounds.minX);
+  const ovHeight = Math.max(1, Math.abs(bounds.maxY - bounds.minY));
+  const imgWidth = state.image.width;
+  const imgHeight = state.image.height;
+
+  const isNegativeY = bounds.maxY <= 0 || (bounds.minY < 0 && Math.abs(bounds.minY) > bounds.maxY);
+  const fitScale = Math.min((imgWidth * 0.92) / ovWidth, (imgHeight * 0.92) / ovHeight);
+
+  const ovCenterX = (bounds.minX + bounds.maxX) / 2;
+  const ovCenterY = (bounds.minY + bounds.maxY) / 2;
+  const imgCenterX = imgWidth / 2;
+  const imgCenterY = imgHeight / 2;
+
+  layer.scaleX = fitScale;
+  layer.scaleY = isNegativeY ? -fitScale : fitScale;
+  layer.offsetX = imgCenterX - ovCenterX * layer.scaleX;
+  layer.offsetY = imgCenterY - ovCenterY * layer.scaleY;
+  layer.flipY = false;
+  layer.autoFitted = true;
+
+  if (els.offsetX) els.offsetX.value = Math.round(layer.offsetX);
+  if (els.offsetY) els.offsetY.value = Math.round(layer.offsetY);
+  if (els.flipY) els.flipY.checked = false;
+
+  updateInspector();
+  renderLayerList();
+  scheduleRender();
+  toast("Overlay Aligned", "Auto-scaled and centered overlay onto image.", "success", 3000);
+}
+
+function flipVertical(layer = selectedLayer()) {
+  if (!layer || layer.kind === "base" || !state.image) return;
+  const bounds = layerBounds(layer);
+  const imgCenterY = state.image.height / 2;
+
+  if (layer.autoFitted && bounds) {
+    const ovCenterY = (bounds.minY + bounds.maxY) / 2;
+    layer.scaleY = -(layer.scaleY !== undefined ? layer.scaleY : 1);
+    layer.offsetY = imgCenterY - ovCenterY * layer.scaleY;
+  } else {
+    layer.flipY = !layer.flipY;
+    if (layer.alignmentMode === "negative-y") {
+      layer.offsetY = layer.flipY ? -Number(state.image.height) : 0;
+    }
+  }
+
+  if (els.offsetY) els.offsetY.value = Math.round(layer.offsetY);
+  if (els.flipY) els.flipY.checked = !!layer.flipY;
+
+  updateInspector();
+  renderLayerList();
+  scheduleRender();
+  toast("Overlay Flipped", "Flipped vertical (Y axis) orientation.", "info", 3000);
+}
+
+function alignNative1to1(layer = selectedLayer()) {
+  if (!layer || layer.kind === "base" || !state.image) return;
+  const bounds = layerBounds(layer);
+  const isNegativeY = bounds ? (bounds.maxY <= 0 || (bounds.minY < 0 && Math.abs(bounds.minY) > bounds.maxY)) : false;
+  layer.scaleX = 1;
+  layer.scaleY = 1;
+  layer.offsetX = 0;
+  layer.offsetY = isNegativeY ? -Number(state.image.height) : 0;
+  layer.flipY = isNegativeY;
+  layer.autoFitted = false;
+  layer.alignmentMode = isNegativeY ? "negative-y" : null;
+
+  if (els.offsetX) els.offsetX.value = 0;
+  if (els.offsetY) els.offsetY.value = Math.round(layer.offsetY);
+  if (els.flipY) els.flipY.checked = Boolean(layer.flipY);
+
+  updateInspector();
+  renderLayerList();
+  scheduleRender();
+  toast("Native 1:1 Alignment", isNegativeY ? "Applied native 1:1 scale with inverted Y." : "Reset to 1:1 native coordinates.", "success", 3000);
+}
+
+function adjustOverlayScale(delta, layer = selectedLayer()) {
+  if (!layer || layer.kind === "base" || !state.image) return;
+  const bounds = layerBounds(layer);
+  const ovCenterX = bounds ? (bounds.minX + bounds.maxX) / 2 : 0;
+  const ovCenterY = bounds ? (bounds.minY + bounds.maxY) / 2 : 0;
+  const prevSx = layer.scaleX !== undefined ? layer.scaleX : 1;
+  const prevSy = layer.scaleY !== undefined ? layer.scaleY : 1;
+
+  const curCenterX = ovCenterX * prevSx + (layer.offsetX || 0);
+  const curCenterY = ovCenterY * prevSy + (layer.offsetY || 0);
+
+  const factor = 1 + delta;
+  layer.scaleX = prevSx * factor;
+  layer.scaleY = prevSy * factor;
+  layer.offsetX = curCenterX - ovCenterX * layer.scaleX;
+  layer.offsetY = curCenterY - ovCenterY * layer.scaleY;
+
+  updateInspector();
+  scheduleRender();
+}
+
+function nudgeOverlay(dx, dy, layer = selectedLayer()) {
+  if (!layer || layer.kind === "base") return;
+  layer.offsetX = (layer.offsetX || 0) + dx;
+  layer.offsetY = (layer.offsetY || 0) + dy;
+  if (els.offsetX) els.offsetX.value = Math.round(layer.offsetX);
+  if (els.offsetY) els.offsetY.value = Math.round(layer.offsetY);
+  updateInspector();
+  scheduleRender();
+}
+
+function resetAlignment(layer = selectedLayer()) {
+  if (!layer || layer.kind === "base") return;
+  layer.scaleX = 1;
+  layer.scaleY = 1;
+  layer.offsetX = 0;
+  layer.offsetY = 0;
+  layer.flipY = false;
+  layer.autoFitted = false;
+  layer.alignmentMode = null;
+
+  if (els.offsetX) els.offsetX.value = 0;
+  if (els.offsetY) els.offsetY.value = 0;
+  if (els.flipY) els.flipY.checked = false;
+
+  updateInspector();
+  renderLayerList();
+  scheduleRender();
+  toast("Overlay Reset", "Reset to raw file coordinates.", "info", 3000);
+}
+
+function clearAllOverlays() {
+  const overlays = state.layers.filter((l) => l.kind !== "base");
+  if (overlays.length === 0) return;
+  overlays.forEach(disposeIndexedLayer);
+  state.layers = state.layers.filter((l) => l.kind === "base");
+  state.selectedLayerId = "base";
+  renderLayerList();
+  updateInspector();
+  scheduleRender();
+  toast("Overlays Cleared", `Removed ${overlays.length} overlay layer${overlays.length > 1 ? "s" : ""}.`, "info", 2500);
+}
+
+function alignOverlay(layer = selectedLayer()) {
+  if (!layer || layer.kind === "base" || !state.image) return;
+  const bounds = layerBounds(layer);
+  const isNegativeY = bounds ? (bounds.maxY <= 0 || (bounds.minY < 0 && Math.abs(bounds.minY) > bounds.maxY)) : false;
+  const ratio = outsideRatio(layer);
+
+  // If overlay has negative Y and is currently auto-fitted or not 1:1 inverted Y, apply 1:1 native!
+  if (isNegativeY && (layer.autoFitted || layer.scaleY !== -1 || layer.scaleX !== 1)) {
+    alignNative1to1(layer);
+    return;
+  }
+
+  // If overlay is outside bounds, auto-fit it to image
+  if (ratio > 0.25 && !layer.autoFitted) {
+    autoFitToImage(layer);
+    return;
+  }
+
+  // Otherwise toggle vertical flip
+  flipVertical(layer);
+}
+
 els.layerList.addEventListener("click", (event) => {
   const item = event.target.closest(".layer-item");
   if (!item) return;
   const layer = state.layers.find((candidate) => candidate.id === item.dataset.layerId);
   if (!layer) return;
   if (event.target.closest('[data-action="visibility"]')) toggleLayer(layer);
+  else if (event.target.closest('[data-action="align"]')) alignOverlay(layer);
   else selectLayer(layer.id);
 });
 els.selectedVisibility.addEventListener("click", () => {
@@ -2399,6 +3497,29 @@ els.colorInput.addEventListener("input", () => {
   renderLayerList();
   scheduleRender();
 });
+if (els.swcColorMode) {
+  els.swcColorMode.addEventListener("change", () => {
+    const layer = selectedLayer();
+    if (!layer || layer.kind !== "swc") return;
+    layer.colorMode = els.swcColorMode.value;
+    scheduleRender();
+  });
+}
+if (els.swcCompartments) {
+  els.swcCompartments.addEventListener("change", (e) => {
+    const layer = selectedLayer();
+    if (!layer || layer.kind !== "swc") return;
+    const type = e.target.getAttribute("data-swc-type");
+    if (!type) return;
+    if (!layer.hiddenTypes) layer.hiddenTypes = new Set();
+    if (e.target.checked) {
+      layer.hiddenTypes.delete(type);
+    } else {
+      layer.hiddenTypes.add(type);
+    }
+    scheduleRender();
+  });
+}
 function changeSize(delta) {
   const layer = selectedLayer();
   if (!layer || layer.kind === "base") return;
@@ -2430,6 +3551,52 @@ els.flipY.addEventListener("change", () => {
   scheduleRender();
 });
 els.removeLayer.addEventListener("click", removeSelectedLayer);
+
+function togglePinMode() {
+  if (!state.image) return;
+  state.isPinning = !state.isPinning;
+  if (state.isPinning) {
+    if (els.shell) {
+      els.shell.classList.add("pinning");
+    }
+    if (els.pinButton) els.pinButton.classList.add("active");
+    toast("Landmark Pin Mode", "Click on the image to drop a labeled landmark pin.", "info", 3500);
+  } else {
+    if (els.shell) els.shell.classList.remove("pinning");
+    if (els.pinButton) els.pinButton.classList.remove("active");
+  }
+}
+if (els.pinButton) els.pinButton.addEventListener("click", togglePinMode);
+
+function updateContrast() {
+  const b = Number(els.brightnessRange.value) || 0;
+  const c = Number(els.contrastRange.value) || 0;
+  const g = (Number(els.gammaRange.value) || 100) / 100;
+  const lut = els.lutPreset ? els.lutPreset.value : "normal";
+  state.contrast = { brightness: b, contrast: c, gamma: g, lut };
+  state.contrastKey = `${b}_${c}_${g}_${lut}`;
+  els.brightnessOutput.textContent = `${b > 0 ? "+" : ""}${b}%`;
+  els.contrastOutput.textContent = `${c > 0 ? "+" : ""}${c}%`;
+  els.gammaOutput.textContent = g.toFixed(1);
+  els.brightnessRange.style.setProperty("--range-progress", `${((b + 100) / 200) * 100}%`);
+  els.contrastRange.style.setProperty("--range-progress", `${((c + 100) / 200) * 100}%`);
+  els.gammaRange.style.setProperty("--range-progress", `${((els.gammaRange.value - 20) / 280) * 100}%`);
+  scheduleRender();
+}
+if (els.lutPreset) els.lutPreset.addEventListener("change", updateContrast);
+if (els.brightnessRange) els.brightnessRange.addEventListener("input", updateContrast);
+if (els.contrastRange) els.contrastRange.addEventListener("input", updateContrast);
+if (els.gammaRange) els.gammaRange.addEventListener("input", updateContrast);
+if (els.resetContrastButton) {
+  els.resetContrastButton.addEventListener("click", () => {
+    if (els.lutPreset) els.lutPreset.value = "normal";
+    if (els.brightnessRange) els.brightnessRange.value = 0;
+    if (els.contrastRange) els.contrastRange.value = 0;
+    if (els.gammaRange) els.gammaRange.value = 100;
+    updateContrast();
+  });
+}
+
 els.shortcutsButton.addEventListener("click", () => els.shortcutsDialog.showModal());
 els.closeShortcuts.addEventListener("click", () => els.shortcutsDialog.close());
 els.shortcutsDialog.addEventListener("click", (event) => {
@@ -2450,6 +3617,15 @@ els.imageLibraryDialog.addEventListener("click", (event) => {
   if (event.target === els.imageLibraryDialog) closeImageLibrary();
 });
 els.imageLibraryDialog.addEventListener("close", () => { state.imageLibrary.requestToken += 1; });
+els.fileBrowserUp.addEventListener("click", () => {
+  if (state.browserParent !== null && state.browserParent !== undefined) {
+    void loadFileBrowserDirectory(state.browserMountId, state.browserParent);
+  }
+});
+els.fileBrowserFilter.addEventListener("input", (e) => {
+  state.browserFilter = e.target.value;
+  renderFileBrowserList();
+});
 els.closeServerPath.addEventListener("click", closeServerPathDialog);
 els.serverPathForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -2474,13 +3650,177 @@ els.shell.addEventListener("wheel", (event) => {
 }, { passive: false });
 
 els.shell.addEventListener("pointerdown", (event) => {
+  if (event.target.closest("button") || event.target.closest(".hud-chip") || event.target.closest(".minimap") || event.target.closest(".section-nav-hud")) return;
   if (!state.image || event.button !== 0) return;
+  if (state.isPinning) {
+    const rect = els.shell.getBoundingClientRect();
+    const imgPt = screenToImage(event.clientX - rect.left, event.clientY - rect.top);
+    const defaultLabel = `Landmark ${state.pins.length + 1}`;
+    const label = window.prompt(`Enter landmark label for (${Math.round(imgPt.x)}, ${Math.round(imgPt.y)}):`, defaultLabel);
+    if (label !== null) {
+      state.pins.push({
+        id: crypto.randomUUID(),
+        x: imgPt.x,
+        y: imgPt.y,
+        label: label.trim() || defaultLabel,
+        color: "#ff9100",
+        createdAt: new Date().toISOString(),
+      });
+      scheduleRender();
+      toast("Landmark Placed", `Pinned "${label || defaultLabel}" at (${Math.round(imgPt.x)}, ${Math.round(imgPt.y)})`);
+    }
+    return;
+  }
   els.shell.setPointerCapture(event.pointerId);
   state.pointer = { id: event.pointerId, clientX: event.clientX, clientY: event.clientY, startX: event.clientX, startY: event.clientY };
   state.moved = false;
   els.shell.classList.add("is-panning");
   els.shell.focus({ preventScroll: true });
 });
+
+function navigateSerialSection(delta) {
+  if (state.brainSeries && state.brainSeries.slices.length > 0) {
+    const nextIdx = state.brainSeries.activeSliceIndex + delta;
+    if (nextIdx >= 0 && nextIdx < state.brainSeries.slices.length) {
+      void switchBrainSeriesSlice(nextIdx);
+    }
+    return;
+  }
+  if (!state.imageLibrary?.records || state.imageLibrary.records.length === 0) return;
+  const currentIdx = state.imageLibrary.records.findIndex((img) => img.id === state.image?.id);
+  if (currentIdx === -1) return;
+  const nextIdx = currentIdx + delta;
+  if (nextIdx >= 0 && nextIdx < state.imageLibrary.records.length) {
+    const nextImg = state.imageLibrary.records[nextIdx];
+    toast("Navigating section", `Opening slice ${nextIdx + 1}/${state.imageLibrary.records.length}: ${nextImg.filename}`);
+    void openImageFromLibrary(nextImg.id);
+  }
+}
+
+async function openBrainSeries(mountId, path, initialSliceIndex, autoActivate = true) {
+  if (autoActivate) {
+    showProcessing({ filename: "Discovering serial brain sections…", progress: 5, status: "processing" });
+  }
+  try {
+    const url = `/api/mounts/${encodeURIComponent(mountId)}/brain-series?path=${encodeURIComponent(path)}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Could not load brain series (HTTP ${response.status})`);
+    }
+    const data = await response.json();
+    if (!data.slices || data.slices.length === 0) {
+      throw new Error("No image slices found in this brain directory");
+    }
+
+    let activeIdx = 0;
+    if (typeof initialSliceIndex === "number" && initialSliceIndex >= 0 && initialSliceIndex < data.slices.length) {
+      activeIdx = initialSliceIndex;
+    } else if (state.image?.filename) {
+      const matchIdx = data.slices.findIndex(s => s.filename === state.image.filename || (state.image.filename && s.filename && state.image.filename.replace(/(_lossy|_lossless)/i, "") === s.filename.replace(/(_lossy|_lossless)/i, "")));
+      if (matchIdx !== -1) activeIdx = matchIdx;
+    }
+
+    state.brainSeries = {
+      brainId: data.brainId,
+      rootPath: data.rootPath,
+      mountId: data.mountId,
+      sliceCount: data.sliceCount,
+      totalOverlays: data.totalOverlays,
+      slices: data.slices,
+      activeSliceIndex: activeIdx,
+    };
+
+    renderFilmstrip();
+
+    if (autoActivate) {
+      hideProcessing();
+      await switchBrainSeriesSlice(state.brainSeries.activeSliceIndex, false);
+      toast(
+        "Brain Series Loaded",
+        `Opened ${data.brainId}: ${data.sliceCount} serial slices found (${data.totalOverlays} overlays available).`,
+        "success",
+        5000
+      );
+    }
+  } catch (err) {
+    if (autoActivate) hideProcessing();
+    toast("Brain Series Error", err.message, "error");
+  }
+}
+
+function renderSectionNav() {
+  const hasSeries = !!(state.brainSeries && state.brainSeries.slices?.length > 0);
+  if (els.sectionNavGroup) els.sectionNavGroup.classList.toggle("hidden", !hasSeries);
+  if (els.sectionNavHud) els.sectionNavHud.classList.toggle("hidden", !hasSeries);
+  if (!hasSeries) return;
+
+  const activeIdx = state.brainSeries.activeSliceIndex;
+  const total = state.brainSeries.sliceCount;
+  const currentSlice = state.brainSeries.slices[activeIdx];
+  const sectionName = currentSlice?.section || `#${activeIdx + 1}`;
+  const labelText = `Section ${sectionName} · ${activeIdx + 1} / ${total}`;
+
+  if (els.navSectionLabel) els.navSectionLabel.textContent = labelText;
+  if (els.hudNavLabel) els.hudNavLabel.textContent = `🧠 ${state.brainSeries.brainId} · ${labelText}`;
+
+  if (els.navPrevSection) els.navPrevSection.disabled = activeIdx <= 0;
+  if (els.navNextSection) els.navNextSection.disabled = activeIdx >= total - 1;
+  if (els.hudNavPrev) els.hudNavPrev.disabled = activeIdx <= 0;
+  if (els.hudNavNext) els.hudNavNext.disabled = activeIdx >= total - 1;
+}
+
+const renderFilmstrip = renderSectionNav;
+
+async function switchBrainSeriesSlice(index, preserveView = true) {
+  if (!state.brainSeries || index < 0 || index >= state.brainSeries.slices.length) return;
+  state.brainSeries.activeSliceIndex = index;
+  renderSectionNav();
+
+  const slice = state.brainSeries.slices[index];
+  const operationToken = beginImageOperation();
+  const hadOverlay = state.layers.some(l => l.kind !== "base" && l.visible);
+  const shouldKeepOverlays = state.autoClearOverlaysOnSectionChange === false;
+
+  try {
+    const response = await fetch(`/api/mounts/${encodeURIComponent(slice.mountId)}/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: slice.path }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.detail || `Could not register slice ${slice.filename}`);
+    }
+    const metadata = await response.json();
+    ensureCurrentImageOperation(operationToken);
+
+    // Activate image: auto-remove previous overlays unless user chose to keep them
+    await activateImage(metadata, { preserveView, preserveOverlays: shouldKeepOverlays });
+
+    // Auto-populate companion card
+    if (slice.companions && slice.companions.length > 0) {
+      state.companions = slice.companions;
+      renderCompanionsCard();
+      // If previous slice had an overlay visible, automatically load matching companion for this slice!
+      if (hadOverlay) {
+        const primaryCompanion = slice.companions[0];
+        if (primaryCompanion) {
+          void loadCompanionOverlay(primaryCompanion);
+        }
+      }
+    }
+    renderSectionNav();
+  } catch (err) {
+    if (imageOperationWasSuperseded(err, operationToken)) return;
+    renderSectionNav();
+    toast("Slice Navigation Error", err.message, "error");
+  }
+}
+
+function closeBrainSeries() {
+  state.brainSeries = null;
+  renderSectionNav();
+}
 
 els.shell.addEventListener("pointermove", (event) => {
   const rect = els.shell.getBoundingClientRect();
@@ -2541,6 +3881,11 @@ document.addEventListener("keydown", (event) => {
   else if (key === "-") zoomAt(1 / 1.4);
   else if (key === "f") fitImage();
   else if (key === "0") resetActualSize();
+  else if (key === "p") togglePinMode();
+  else if (key === "[" || key === "]") navigateSerialSection(key === "]" ? 1 : -1);
+  else if (key === "escape") {
+    if (state.isPinning) togglePinMode();
+  }
   else if (key === "l") showImageLibrary();
   else if (key === "s") showServerPathDialog();
   else if (key === "?") els.shortcutsDialog.showModal();
@@ -2564,6 +3909,70 @@ document.addEventListener("drop", (event) => {
   event.preventDefault();
   toast("Local files aren’t accepted", "Use Open server path for a JP2, TIFF, JSON, or SWC in configured storage.", "warning");
 });
+
+if (els.addOverlayBtn) {
+  els.addOverlayBtn.addEventListener("click", () => {
+    const available = availableCompanions();
+    if (available.length > 0) {
+      openCompanionPicker();
+    } else {
+      showServerPathDialog();
+    }
+  });
+}
+
+if (els.closeCompanionPicker) els.closeCompanionPicker.addEventListener("click", () => els.companionPickerDialog?.close());
+if (els.cancelCompanionPicker) els.cancelCompanionPicker.addEventListener("click", () => els.companionPickerDialog?.close());
+if (els.loadAllCompanionsBtn) {
+  els.loadAllCompanionsBtn.addEventListener("click", async () => {
+    const available = availableCompanions();
+    els.loadAllCompanionsBtn.disabled = true;
+    els.loadAllCompanionsBtn.textContent = "Loading All…";
+    for (const comp of available) {
+      await loadCompanionOverlay(comp);
+    }
+    els.loadAllCompanionsBtn.disabled = false;
+    els.loadAllCompanionsBtn.textContent = "Load All Overlays";
+    els.companionPickerDialog?.close();
+  });
+}
+
+if (els.navPrevSection) els.navPrevSection.addEventListener("click", () => navigateSerialSection(-1));
+if (els.navNextSection) els.navNextSection.addEventListener("click", () => navigateSerialSection(1));
+if (els.hudNavPrev) els.hudNavPrev.addEventListener("click", (e) => { e.stopPropagation(); navigateSerialSection(-1); });
+if (els.hudNavNext) els.hudNavNext.addEventListener("click", (e) => { e.stopPropagation(); navigateSerialSection(1); });
+if (els.sectionNavHud) els.sectionNavHud.addEventListener("pointerdown", (e) => e.stopPropagation());
+if (els.alignOverlayButton) els.alignOverlayButton.addEventListener("click", () => alignOverlay(selectedLayer()));
+if (els.btn1to1Overlay) els.btn1to1Overlay.addEventListener("click", () => alignNative1to1(selectedLayer()));
+if (els.btnFitOverlay) els.btnFitOverlay.addEventListener("click", () => autoFitToImage(selectedLayer()));
+if (els.btnFlipVertical) els.btnFlipVertical.addEventListener("click", () => flipVertical(selectedLayer()));
+if (els.btnResetAlignment) els.btnResetAlignment.addEventListener("click", () => resetAlignment(selectedLayer()));
+
+if (els.btnScaleDown) els.btnScaleDown.addEventListener("click", (e) => adjustOverlayScale(e.shiftKey ? -0.1 : -0.02));
+if (els.btnScaleUp) els.btnScaleUp.addEventListener("click", (e) => adjustOverlayScale(e.shiftKey ? 0.1 : 0.02));
+if (els.btnNudgeLeft) els.btnNudgeLeft.addEventListener("click", (e) => nudgeOverlay(e.shiftKey ? -500 : -100, 0));
+if (els.btnNudgeRight) els.btnNudgeRight.addEventListener("click", (e) => nudgeOverlay(e.shiftKey ? 500 : 100, 0));
+if (els.btnNudgeUp) els.btnNudgeUp.addEventListener("click", (e) => nudgeOverlay(0, e.shiftKey ? -500 : -100));
+if (els.btnNudgeDown) els.btnNudgeDown.addEventListener("click", (e) => nudgeOverlay(0, e.shiftKey ? 500 : 100));
+
+if (els.clearAllOverlaysBtn) els.clearAllOverlaysBtn.addEventListener("click", clearAllOverlays);
+if (els.autoClearOverlaysCheckbox) {
+  els.autoClearOverlaysCheckbox.addEventListener("change", (e) => {
+    state.autoClearOverlaysOnSectionChange = e.target.checked;
+    toast(
+      "Overlay Section Sync",
+      e.target.checked ? "Previous section's overlays will be removed on section change." : "Overlays will be kept across section changes.",
+      "info",
+      2500
+    );
+  });
+}
+
+window.openBrainSeries = openBrainSeries;
+window.clearAllOverlays = clearAllOverlays;
+window.state = state;
+window.scheduleRender = scheduleRender;
+window.updateInspector = updateInspector;
 
 new ResizeObserver(resizeCanvas).observe(els.shell);
 resizeCanvas();

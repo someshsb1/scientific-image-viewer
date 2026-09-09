@@ -48,6 +48,13 @@ def _encode_query(pairs: list[tuple[str, str]]) -> str:
     )
 
 
+try:
+    import urllib3
+    _HAS_URLLIB3 = True
+except ImportError:
+    _HAS_URLLIB3 = False
+
+
 class IIPClient:
     """Issue ordered IIP requests to a service reachable only on loopback."""
 
@@ -73,6 +80,15 @@ class IIPClient:
         self.retries = retries
         # Never send private FIF paths through an environment-configured proxy.
         self._opener = build_opener(ProxyHandler({}))
+        self._pool = (
+            urllib3.PoolManager(
+                maxsize=32,
+                num_pools=4,
+                headers={"User-Agent": "NeuroScope/1.0", "Accept": "*/*"},
+            )
+            if _HAS_URLLIB3
+            else None
+        )
 
     def _get(
         self,
@@ -87,15 +103,34 @@ class IIPClient:
         request_retries = self.retries if retries is None else retries
         for attempt in range(request_retries + 1):
             try:
-                request = Request(url, headers={"Accept": "*/*", "User-Agent": "NeuroScope/1.0"})
-                with self._opener.open(request, timeout=request_timeout) as response:
-                    body = response.read(limit + 1)
-                    if len(body) > limit:
-                        raise IIPError("IIPImage response exceeded the safety limit")
-                    return body, response.headers.get_content_type()
+                if self._pool is not None:
+                    resp = self._pool.request(
+                        "GET",
+                        url,
+                        timeout=request_timeout,
+                        preload_content=False,
+                        retries=False,
+                    )
+                    try:
+                        body = resp.read(limit + 1)
+                        content_type = resp.headers.get("Content-Type", "")
+                        if len(body) > limit:
+                            raise IIPError("IIPImage response exceeded the safety limit")
+                        if resp.status >= 400:
+                            raise IIPError(f"IIPImage returned HTTP {resp.status}")
+                        return body, content_type
+                    finally:
+                        resp.release_conn()
+                else:
+                    request = Request(url, headers={"Accept": "*/*", "User-Agent": "NeuroScope/1.0"})
+                    with self._opener.open(request, timeout=request_timeout) as response:
+                        body = response.read(limit + 1)
+                        if len(body) > limit:
+                            raise IIPError("IIPImage response exceeded the safety limit")
+                        return body, response.headers.get_content_type()
             except IIPError:
                 raise
-            except (HTTPError, URLError, TimeoutError, socket.timeout, OSError):
+            except (HTTPError, URLError, TimeoutError, socket.timeout, OSError, Exception):
                 if attempt >= request_retries:
                     break
                 time.sleep(0.05 * (attempt + 1))
@@ -172,8 +207,10 @@ class IIPClient:
         level: int,
         tile_index: int,
         display_windows: list[dict] | tuple[tuple[float, float], ...],
+        gamma: float = 1.0,
     ) -> tuple[bytes, str]:
-        pairs: list[tuple[str, str]] = [("FIF", str(source)), ("GAM", "1")]
+        gam_val = _format_number(gamma) if (math.isfinite(gamma) and gamma > 0) else "1"
+        pairs: list[tuple[str, str]] = [("FIF", str(source)), ("GAM", gam_val)]
         for index, window in enumerate(display_windows):
             if isinstance(window, dict):
                 channel = int(window.get("channel", index))

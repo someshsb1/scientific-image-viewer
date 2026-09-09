@@ -13,7 +13,7 @@ class DisplayWindowError(RuntimeError):
     """A reduced-resolution display window could not be estimated."""
 
 
-MAX_REDUCTION_ATTEMPTS = 4
+MAX_REDUCTION_ATTEMPTS = 8
 MAX_PREVIEW_PIXELS = 300_000
 
 
@@ -145,12 +145,13 @@ def estimate_display_windows(
                 str(reduction),
             ]
             region = _preview_region(image_width, image_height, reduction)
+            cmd_with_region = list(command)
             if region is not None:
-                command.extend(["-region", region])
-            command.extend(["-num_threads", str(max(1, threads))])
+                cmd_with_region.extend(["-region", region])
+            cmd_with_region.extend(["-num_threads", str(max(1, threads))])
             try:
                 result = subprocess.run(
-                    command,
+                    cmd_with_region,
                     check=False,
                     capture_output=True,
                     text=True,
@@ -158,7 +159,23 @@ def estimate_display_windows(
                 )
             except subprocess.TimeoutExpired as exc:
                 raise DisplayWindowError("Reduced-resolution auto-windowing timed out") from exc
-            if result.returncode != 0 or not overview.is_file():
+            
+            # If regional decode failed or produced invalid file, retry full reduced overview
+            if (result.returncode != 0 or not overview.is_file() or overview.stat().st_size == 0) and region is not None:
+                overview.unlink(missing_ok=True)
+                cmd_no_region = list(command) + ["-num_threads", str(max(1, threads))]
+                try:
+                    result = subprocess.run(
+                        cmd_no_region,
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                        timeout=remaining,
+                    )
+                except subprocess.TimeoutExpired as exc:
+                    raise DisplayWindowError("Reduced-resolution auto-windowing timed out") from exc
+
+            if result.returncode != 0 or not overview.is_file() or overview.stat().st_size == 0:
                 continue
             try:
                 _, samples = _read_pnm(overview)

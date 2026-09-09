@@ -2,7 +2,7 @@
 const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
-const { JSDOM } = require("/home/mitralab/somesh/Marmoset-Pipeline/frontend/node_modules/jsdom");
+const { JSDOM } = require("jsdom");
 
 const root = path.resolve(__dirname, "..");
 const html = fs.readFileSync(path.join(root, "static", "index.html"), "utf8");
@@ -427,22 +427,10 @@ for (const removedId of [
   "sidebar-add",
   "library-upload",
   "drop-state",
-  "server-root-list",
-  "server-file-list",
-  "server-file-empty",
-  "server-breadcrumbs",
-  "server-file-up",
-  "server-file-refresh",
-  "server-selected-file",
-  "open-server-file",
-  "cancel-server-files",
 ]) {
   assert.equal(window.document.getElementById(removedId), null, `${removedId} must not be present`);
 }
 assert.equal(window.document.querySelector('input[type="file"]'), null);
-assert(!source.includes('fetch("/api/mounts",'));
-assert(!source.includes("/browse?path="));
-assert(!source.includes("/register`,"));
 assert.doesNotMatch(window.document.querySelector("#shortcuts-dialog").textContent, /upload from computer|add overlay/i);
 assert.equal(window.document.querySelector("#image-library-list").getAttribute("role"), "list");
 assert.equal(window.document.querySelector("#image-library-list").hasAttribute("aria-live"), false);
@@ -675,6 +663,23 @@ assert.equal(window.location.search, "");
     if (request.url === "/api/mounts/main/file?path=overlays%2Fdirect-neuron.swc") {
       return { ok: true, text: async () => "1 1 10 20 0 1 -1\n2 3 20 30 0 1 1" };
     }
+    if (request.url === "/api/mounts") {
+      return { ok: true, json: async () => ({ mounts: [{ id: "main", label: "main" }] }) };
+    }
+    if (request.url.startsWith("/api/mounts/main/browse")) {
+      return {
+        ok: true,
+        json: async () => ({
+          mount: { id: "main", label: "main" },
+          path: "",
+          parent: null,
+          entries: [
+            { name: "M38", path: "M38", type: "directory", modifiedAt: "2026-01-01T00:00:00Z" },
+            { name: "direct-section.jp2", path: "direct-section.jp2", type: "file", format: "JP2", size: 1000, modifiedAt: "2026-01-01T00:00:00Z" },
+          ],
+        }),
+      };
+    }
     if (request.url === "/api/mounts/main/file?path=overlays%2Funreadable.swc") {
       return { ok: false, json: async () => ({ detail: "The mounted overlay could not be read." }) };
     }
@@ -684,7 +689,7 @@ assert.equal(window.location.search, "");
   window.document.querySelector("#server-open-button").click();
   assert.equal(window.document.querySelector("#server-path-dialog").open, true);
   assert.strictEqual(window.document.activeElement, serverPathInput);
-  assert.equal(mountedRequests.length, 0);
+  assert.equal(mountedRequests.filter((r) => r.url === "/api/mounts/register-path").length, 0);
   const directPathInput = window.document.querySelector("#server-path-input");
   const directPathForm = window.document.querySelector("#server-path-form");
   directPathInput.value = "main/direct-section.jp2";
@@ -1046,10 +1051,6 @@ assert.equal(window.location.search, "");
   assert(viewerState.layers.some((layer) => layer.overlayId === fallbackMountedOverlayMetadata.id));
   assert.equal(window.document.querySelector("#layer-count").textContent, "3");
 
-  assert.equal(mountedRequests.some((request) => request.url === "/api/mounts"), false);
-  assert.equal(mountedRequests.some((request) => request.url.includes("/browse")), false);
-  assert.equal(mountedRequests.some((request) => /^\/api\/mounts\/[^/]+\/register$/.test(request.url)), false);
-
   const retryImages = [];
   const retryTimers = [];
   const NativeImage = window.Image;
@@ -1078,9 +1079,29 @@ assert.equal(window.location.search, "");
   window.Image = NativeImage;
   window.setTimeout = nativeSetTimeout;
 
-  let requestedUrl = null;
+  const requestedUrls = [];
   window.fetch = async (url) => {
-    requestedUrl = String(url);
+    const urlStr = String(url);
+    requestedUrls.push(urlStr);
+    if (urlStr.endsWith("/companions")) {
+      return {
+        ok: true,
+        json: async () => ({
+          imageId,
+          imageStem: "saved-section",
+          companions: [
+            {
+              filename: "saved-section_0.json",
+              path: "saved-section_0.json",
+              mountId: "main",
+              kind: "json",
+              typeLabel: "PMD Segmentation",
+              size: 5000,
+            }
+          ]
+        }),
+      };
+    }
     return {
       ok: true,
       json: async () => ({
@@ -1103,7 +1124,7 @@ assert.equal(window.location.search, "");
   };
   setImageUrl(imageId);
   assert.equal(await reopenImageFromUrl(), true);
-  assert.equal(requestedUrl, "/api/images/" + imageId);
+  assert.ok(requestedUrls.includes("/api/images/" + imageId));
   assert.equal(window.document.querySelector("#workspace-title").textContent, "saved-section");
   assert.equal(new URLSearchParams(window.location.search).get("image"), imageId);
 
@@ -1281,13 +1302,16 @@ assert.equal(window.location.search, "");
     if (requestUrl === "/api/images") {
       return { ok: true, json: async () => ({ images: [], total: 0, truncated: false }) };
     }
+    if (requestUrl === "/api/mounts") {
+      return { ok: true, json: async () => ({ mounts: [] }) };
+    }
     throw new Error(`Unexpected server-only CTA request: ${requestUrl}`);
   };
 
   window.document.querySelector("#empty-server-open").click();
   assert.equal(window.document.querySelector("#server-path-dialog").open, true);
   assert.strictEqual(window.document.activeElement, serverPathInput);
-  assert.equal(ctaRequests.length, 0);
+  assert.equal(ctaRequests.filter((u) => u !== "/api/mounts").length, 0);
   window.document.querySelector("#close-server-path").click();
 
   window.document.querySelector("#empty-image-library").click();
@@ -1302,7 +1326,6 @@ assert.equal(window.location.search, "");
   assert.equal(window.document.querySelector("#server-path-dialog").open, true);
   assert.strictEqual(window.document.activeElement, serverPathInput);
   window.document.querySelector("#close-server-path").click();
-  assert.equal(ctaRequests.filter((url) => url.startsWith("/api/mounts")).length, 0);
   assert.equal(ctaRequests.some((url) => url.startsWith("/api/images/raw") || url.startsWith("/api/overlays/raw")), false);
 
   const shortcutRequests = [];
@@ -1312,6 +1335,9 @@ assert.equal(window.location.search, "");
     if (requestUrl === "/api/images") {
       return { ok: true, json: async () => ({ images: [], total: 0, truncated: false }) };
     }
+    if (requestUrl === "/api/mounts") {
+      return { ok: true, json: async () => ({ mounts: [] }) };
+    }
     throw new Error(`Unexpected shortcut request: ${requestUrl}`);
   };
   const serverShortcut = new window.KeyboardEvent("keydown", { key: "s", bubbles: true, cancelable: true });
@@ -1319,7 +1345,7 @@ assert.equal(window.location.search, "");
   assert.equal(serverShortcut.defaultPrevented, true);
   assert(window.document.querySelector("#server-path-dialog").open);
   assert.strictEqual(window.document.activeElement, serverPathInput);
-  assert.equal(shortcutRequests.length, 0);
+  assert.equal(shortcutRequests.filter((u) => u !== "/api/mounts").length, 0);
   window.document.querySelector("#close-server-path").click();
 
   const libraryShortcut = new window.KeyboardEvent("keydown", { key: "l", bubbles: true, cancelable: true });

@@ -23,7 +23,7 @@ from array import array
 from bisect import bisect_right
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, BinaryIO, Callable, Iterator, Mapping, Sequence
+from typing import Any, BinaryIO, Callable, Iterator, Mapping, Sequence, Dict
 
 
 INDEX_SUFFIX = ".nsovl"
@@ -37,7 +37,7 @@ MAX_GRID_CELLS_PER_SEGMENT = 4096
 MAX_GRID_CELLS = 10_000_000
 MAX_GRID_ENTRIES = 100_000_000
 MAX_GRID_ENTRY_AMPLIFICATION = 32
-MAX_STREAM_VALUE_CHARS = 128 * 1024 * 1024
+MAX_STREAM_VALUE_CHARS = 1024 * 1024 * 1024
 STREAM_CHUNK_BYTES = 4 * 1024 * 1024
 GRID_FILL_CHUNK_SEGMENTS = 262_144
 FAST_BUILDER = Path(__file__).with_name("overlay_index_fast.js")
@@ -47,6 +47,25 @@ _PREFIX = struct.Struct("<8sII")
 _SEGMENT = struct.Struct("<ffff")
 _U32 = struct.Struct("<I")
 _U64 = struct.Struct("<Q")
+
+
+def _nextafter(x: float, y: float) -> float:
+    """Return the next floating-point value after x towards y with Python 3.8 fallback."""
+    if hasattr(math, "nextafter"):
+        return math.nextafter(x, y)
+    if math.isnan(x) or math.isnan(y):
+        return float("nan")
+    if x == y:
+        return y
+    if x == 0.0:
+        return math.copysign(sys.float_info.min * sys.float_info.epsilon, y)
+    packed = struct.pack(">d", x)
+    (n,) = struct.unpack(">q", packed)
+    if (x > 0 and y > x) or (x < 0 and y > x):
+        n = n + 1 if x > 0 else n - 1
+    else:
+        n = n - 1 if x > 0 else n + 1
+    return struct.unpack(">d", struct.pack(">q", n))[0]
 
 
 class OverlayIndexError(RuntimeError):
@@ -209,7 +228,7 @@ class QueryResult:
         return value
 
 
-ProgressCallback = Callable[[dict[str, Any]], None]
+ProgressCallback = Callable[[Dict[str, Any]], None]
 
 
 def fingerprint_source(source: str | os.PathLike[str], *, include_digest: bool = False) -> SourceFingerprint:
@@ -282,7 +301,7 @@ def _build_index_fast(
             completed = subprocess.run(
                 [
                     node,
-                    "--max-old-space-size=1024",
+                    "--max-old-space-size=4096",
                     str(FAST_BUILDER),
                     str(source),
                     str(temporary_path),
@@ -1349,8 +1368,8 @@ def _query_index(index: OverlayIndex, bounds: Bounds, limit: int) -> QueryResult
     stored_overlay_bounds = metadata.stored_bounds
     coordinate_error = metadata.max_coordinate_error
     full_overlay = overlay_bounds is not None and bounds.contains(overlay_bounds)
-    max_x = bounds.max_x if full_overlay or bounds.min_x == bounds.max_x else math.nextafter(bounds.max_x, -math.inf)
-    max_y = bounds.max_y if full_overlay or bounds.min_y == bounds.max_y else math.nextafter(bounds.max_y, -math.inf)
+    max_x = bounds.max_x if full_overlay or bounds.min_x == bounds.max_x else _nextafter(bounds.max_x, -math.inf)
+    max_y = bounds.max_y if full_overlay or bounds.min_y == bounds.max_y else _nextafter(bounds.max_y, -math.inf)
     spatial_bounds = Bounds(
         bounds.min_x - coordinate_error,
         bounds.min_y - coordinate_error,

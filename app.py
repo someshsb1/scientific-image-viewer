@@ -15,6 +15,7 @@ import re
 import shutil
 import subprocess
 import threading
+import time
 import uuid
 from bisect import insort
 from contextlib import asynccontextmanager, contextmanager
@@ -22,6 +23,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timezone
 from itertools import islice
 from pathlib import Path
+from typing import Optional
 
 from display_window import DisplayWindowError, estimate_display_windows
 from image_pipeline import clear_partial_pyramid, decode_jp2_with_kakadu, run_dzsave
@@ -38,7 +40,7 @@ from starlette.concurrency import run_in_threadpool
 APP_ROOT = Path(__file__).resolve().parent
 STATIC_ROOT = APP_ROOT / "static"
 DATA_ROOT = Path(os.environ.get("NEUROSCOPE_DATA_DIR", APP_ROOT / "data")).resolve()
-HOST = os.environ.get("NEUROSCOPE_HOST", "127.0.0.1")
+HOST = os.environ.get("NEUROSCOPE_HOST", "0.0.0.0")
 PORT = int(os.environ.get("NEUROSCOPE_PORT", "8088"))
 MAX_UPLOAD_BYTES = int(os.environ.get("NEUROSCOPE_MAX_UPLOAD_BYTES", str(20 * 1024**3)))
 MAX_OVERLAY_BYTES = int(os.environ.get("NEUROSCOPE_MAX_OVERLAY_BYTES", str(256 * 1024**2)))
@@ -115,7 +117,8 @@ def safe_filename(value: str) -> str:
 
 def configured_mount_roots(value: str | None = None) -> dict[str, Path]:
     """Parse id:/absolute/path mount mappings without exposing paths to clients."""
-    raw = value if value is not None else os.environ.get("NEUROSCOPE_MOUNT_ROOTS", "nfs:/nfs/data")
+    default_roots = "mnt:/mnt"
+    raw = value if value is not None else os.environ.get("NEUROSCOPE_MOUNT_ROOTS", default_roots)
     roots: dict[str, Path] = {}
     for specification in raw.split(","):
         specification = specification.strip()
@@ -772,9 +775,10 @@ def prepared_iip_ready_fields(image_id: str, source: Path, details: IIPMetadata)
             details.display_windows,
             KAKADU_THREADS,
         )
-    except DisplayWindowError as exc:
-        raise IIPError("Scientific JP2 auto-windowing failed") from exc
-    return iip_ready_fields(details, display_windows, "reduced-overview-p0.5-p98-shared-rgb")
+        return iip_ready_fields(details, display_windows, "reduced-overview-p0.5-p98-shared-rgb")
+    except Exception as exc:
+        LOGGER.warning("Could not estimate auto-window for %s (%s), falling back to nominal windows: %s", image_id, source.name, exc)
+        return iip_ready_fields(details, details.display_windows, "nominal")
 
 
 def register_image_source(
@@ -814,7 +818,7 @@ def register_image_source(
     write_metadata(image_id, metadata)
 
     if extension == ".jp2":
-        details = IIP.metadata(source)
+        details = IIP.metadata(source.resolve())
         ready_fields = prepared_iip_ready_fields(image_id, source, details)
         if fingerprint != source_fingerprint(source.resolve(strict=True)):
             raise SourceChangedError("Registered image source changed during registration")
@@ -890,7 +894,7 @@ def validated_iip_source(image_id: str, metadata: dict) -> Path:
     source = validated_record_source(image_id, metadata)
     if source.suffix.lower() != ".jp2":
         raise ValueError("Invalid JPEG 2000 source")
-    return source
+    return source.resolve()
 
 def write_uploading_metadata(
     image_id: str,
@@ -939,6 +943,45 @@ def vips_field(source: Path, field: str, default: str = "") -> str:
     return result.stdout.strip()
 
 
+VIPS_FORMAT_MAP = {
+    "0": "uchar",
+    "1": "char",
+    "2": "ushort",
+    "3": "short",
+    "4": "uint",
+    "5": "int",
+    "6": "float",
+    "7": "complex",
+    "8": "double",
+    "9": "dpcomplex",
+}
+
+VIPS_INTERPRETATION_MAP = {
+    "0": "error",
+    "1": "multiband",
+    "2": "b-w",
+    "3": "histogram",
+    "4": "fourier",
+    "5": "xyz",
+    "6": "lab",
+    "7": "cmyk",
+    "8": "labq",
+    "9": "rgb",
+    "10": "cmc",
+    "11": "lch",
+    "12": "labs",
+    "13": "sRGB",
+    "14": "yxy",
+    "15": "fourier",
+    "16": "rgb16",
+    "17": "grey16",
+    "18": "matrix",
+    "19": "scrgb",
+    "20": "hsv",
+    "22": "sRGB",
+}
+
+
 def inspect_image(source: Path) -> dict:
     width = int(vips_field(source, "width"))
     height = int(vips_field(source, "height"))
@@ -946,14 +989,18 @@ def inspect_image(source: Path) -> dict:
         raise ValueError("The image has invalid dimensions")
     pixel_format = vips_field(source, "format", "unknown")
     format_match = re.search(r"VIPS_FORMAT_([A-Z0-9_]+)", pixel_format)
+    normalized_format = format_match.group(1).lower() if format_match else VIPS_FORMAT_MAP.get(pixel_format, pixel_format)
+
     interpretation = vips_field(source, "interpretation", "unknown")
     interpretation_match = re.search(r"VIPS_INTERPRETATION_([A-Za-z0-9_]+)", interpretation)
+    normalized_interpretation = interpretation_match.group(1) if interpretation_match else VIPS_INTERPRETATION_MAP.get(interpretation, interpretation)
+
     return {
         "width": width,
         "height": height,
         "bands": int(vips_field(source, "bands", "1") or "1"),
-        "pixelFormat": format_match.group(1).lower() if format_match else pixel_format,
-        "interpretation": interpretation_match.group(1) if interpretation_match else interpretation,
+        "pixelFormat": normalized_format,
+        "interpretation": normalized_interpretation,
         "pages": int(vips_field(source, "n-pages", "1") or "1"),
     }
 
@@ -1500,6 +1547,10 @@ def browse_mount(mount_id: str, path: str = Query("", max_length=4096)) -> dict:
                 if kind == "file":
                     entry["size"] = stats.st_size
                     entry["format"] = image_format
+                elif kind == "directory":
+                    name_lower = candidate.name.lower()
+                    if any(k in name_lower for k in ["jp2", "compressed", "converted", "mba"]) or re.match(r"^MD\d+", candidate.name, re.IGNORECASE):
+                        entry["isBrainSeries"] = True
                 entries.append(entry)
             except (OSError, RuntimeError, ValueError):
                 continue
@@ -1733,6 +1784,389 @@ def list_images(
     }
 
 
+@app.get("/api/images/{image_id}/companions")
+def get_image_companions(image_id: str) -> dict:
+    """Auto-discover matching .json and .swc companion overlays for an active image."""
+    try:
+        metadata = read_metadata(image_id)
+    except (FileNotFoundError, ValueError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=404, detail="Image record not found") from exc
+
+    if metadata.get("isDemo") or image_id == "demo-neu":
+        return {
+            "imageId": image_id,
+            "imageStem": "synthetic_neural_section",
+            "companions": [
+                {
+                    "filename": "demo_neuron.swc",
+                    "path": "demo_neuron.swc",
+                    "mountId": "demo",
+                    "kind": "swc",
+                    "typeLabel": "SWC Skeleton",
+                    "size": 1840,
+                    "isIndexed": False,
+                    "isDemo": True,
+                },
+                {
+                    "filename": "cell_detections.json",
+                    "path": "cell_detections.json",
+                    "mountId": "demo",
+                    "kind": "json",
+                    "typeLabel": "Spatial JSON",
+                    "size": 2480,
+                    "isIndexed": False,
+                    "isDemo": True,
+                },
+            ],
+        }
+
+    mount_id = metadata.get("mountId")
+    relative_path = metadata.get("mountedPath")
+    if not mount_id or not relative_path:
+        return {"imageId": image_id, "imageStem": Path(metadata.get("filename", "")).stem, "companions": []}
+
+    try:
+        mounted_source = resolve_mounted_path(mount_id, relative_path, require_directory=False)
+        companions = find_companion_overlays_for_source(mounted_source, mount_id)
+
+        brain_series_info = None
+        parent_dir = mounted_source.parent
+        brain_match = re.search(r"(MD\d+)", mounted_source.stem, flags=re.IGNORECASE)
+        if brain_match or parent_dir.name in {"compressed_jp2", "converted_jp2", "jp2"}:
+            root = mounted_root(mount_id)
+            brain_id = brain_match.group(1).upper() if brain_match else parent_dir.parent.name
+            brain_series_info = {
+                "brainId": brain_id,
+                "path": mounted_relative_path(root, parent_dir),
+                "mountId": mount_id,
+            }
+
+        return {
+            "imageId": image_id,
+            "imageStem": mounted_source.stem,
+            "companions": companions,
+            "brainSeries": brain_series_info,
+        }
+    except Exception as exc:
+        LOGGER.warning("Could not search companion overlays for %s: %s", image_id, exc)
+        return {"imageId": image_id, "imageStem": Path(metadata.get("filename", "")).stem, "companions": []}
+
+
+def find_companion_overlays_for_source(
+    mounted_source: Path,
+    mount_id: str | None = None,
+    limit: int = 12,
+) -> list[dict]:
+    """Find matching .json and .swc overlay files for an image source."""
+    if not mounted_source.exists():
+        return []
+
+    stem = mounted_source.stem
+    clean_stem = re.sub(r"(_lossy|_lossless)$", "", stem, flags=re.IGNORECASE)
+    section_match = re.search(r"(MD\d+-F\d+)", stem, flags=re.IGNORECASE)
+    section_token = section_match.group(1) if section_match else clean_stem
+
+    candidates: list[Path] = []
+    seen: set[str] = set()
+
+    def add_candidate(path: Path):
+        try:
+            resolved = path.resolve()
+            key = str(resolved)
+            if key in seen:
+                return
+            if not path.is_file() or path.is_symlink():
+                return
+            suffix = path.suffix.lower()
+            if suffix not in {".json", ".swc"}:
+                return
+            sz = path.stat().st_size
+            if sz <= 0 or sz > MAX_INDEXED_OVERLAY_BYTES:
+                return
+            seen.add(key)
+            candidates.append(path)
+        except OSError:
+            return
+
+    parent = mounted_source.parent
+
+    # 1. Same directory (prioritizing matching tokens, then all overlays in same folder)
+    for f in parent.glob(f"*{section_token}*.json"):
+        add_candidate(f)
+    for f in parent.glob(f"*{section_token}*.swc"):
+        add_candidate(f)
+    for f in parent.glob("*.json"):
+        add_candidate(f)
+    for f in parent.glob("*.swc"):
+        add_candidate(f)
+
+    # 2. Subdirectories in parent (whole_image, swc, annotations, pmd, stp, etc.)
+    for sub in ["whole_image", "swc", "annotations", "json", "pmd", "stp"]:
+        subdir = parent / sub
+        if subdir.is_dir():
+            for f in subdir.glob(f"*{section_token}*.json"):
+                add_candidate(f)
+            for f in subdir.glob(f"*{section_token}*.swc"):
+                add_candidate(f)
+
+    # 3. Known sibling pipeline directories (e.g. ancestor / dm2doutputs / ... / whole_image)
+    for ancestor in [parent, parent.parent, parent.parent.parent, parent.parent.parent.parent]:
+        if not ancestor.is_dir():
+            continue
+        for pipeline_dir_name in ["dm2doutputs", "outputs", "segmentations", "swc"]:
+            pipeline_dir = ancestor / pipeline_dir_name
+            if pipeline_dir.is_dir():
+                for match in pipeline_dir.glob(f"*/{clean_stem}*"):
+                    if match.is_dir():
+                        for f in match.rglob("*.json"):
+                            add_candidate(f)
+                        for f in match.rglob("*.swc"):
+                            add_candidate(f)
+                for match in pipeline_dir.glob(f"*{section_token}*"):
+                    if match.is_file():
+                        add_candidate(match)
+                    elif match.is_dir():
+                        for f in match.glob(f"*{section_token}*.json"):
+                            add_candidate(f)
+                        for f in match.glob(f"*{section_token}*.swc"):
+                            add_candidate(f)
+                        for f in (match / "whole_image").glob("*.json"):
+                            add_candidate(f)
+
+    results = []
+    for cand in candidates[:limit]:
+        cand_mount_id = mount_id
+        cand_rel_path = None
+        if cand_mount_id:
+            try:
+                root = mounted_root(cand_mount_id)
+                cand_rel_path = mounted_relative_path(root, cand)
+            except Exception:
+                cand_mount_id = None
+        if not cand_mount_id:
+            for m_id, m_root in MOUNT_ROOTS.items():
+                try:
+                    rel = mounted_relative_path(m_root, cand)
+                    cand_mount_id = m_id
+                    cand_rel_path = rel
+                    break
+                except Exception:
+                    continue
+
+        if not cand_mount_id or not cand_rel_path:
+            continue
+
+        try:
+            sz = cand.stat().st_size
+        except OSError:
+            continue
+
+        kind = cand.suffix.lower().lstrip(".")
+        name_lower = cand.name.lower()
+        if kind == "swc":
+            type_label = "SWC Skeleton"
+        elif "lossy" in name_lower or "pmd" in name_lower or "segment" in name_lower:
+            type_label = "PMD Segmentation"
+        else:
+            type_label = "Spatial JSON"
+
+        results.append({
+            "filename": cand.name,
+            "path": cand_rel_path,
+            "mountId": cand_mount_id,
+            "kind": kind,
+            "typeLabel": type_label,
+            "size": sz,
+            "isIndexed": kind == "json" and sz >= 32 * 1024 * 1024,
+        })
+
+    results.sort(key=lambda item: (
+        0 if clean_stem in item["filename"] else 1,
+        -item["size"]
+    ))
+    return results
+
+
+@app.post("/api/mounts/{mount_id}/find-companions")
+def find_mount_companions(mount_id: str, payload: dict = Body(...)) -> dict:
+    """Find companion overlays for an arbitrary mounted path."""
+    relative_path = payload.get("path")
+    if not isinstance(relative_path, str) or not relative_path:
+        raise HTTPException(status_code=400, detail="A relative mounted file path is required")
+    mounted_source = resolve_mounted_path(mount_id, relative_path, require_directory=False)
+    companions = find_companion_overlays_for_source(mounted_source, mount_id)
+    return {
+        "path": relative_path,
+        "mountId": mount_id,
+        "imageStem": mounted_source.stem,
+        "companions": companions,
+    }
+
+
+def natural_slice_key(filename: str) -> tuple:
+    f_match = re.search(r"-F(\d+)-", filename, flags=re.IGNORECASE)
+    f_num = int(f_match.group(1)) if f_match else 0
+    idx_match = re.search(r"_(\d+)(?:\.|\_|$)", filename)
+    idx_num = int(idx_match.group(1)) if idx_match else 0
+    return (f_num, idx_num, filename)
+
+
+def extract_section_label(filename: str) -> str:
+    match = re.search(r"(F\d+)", filename, flags=re.IGNORECASE)
+    if match:
+        return match.group(1).upper()
+    return Path(filename).stem[:8]
+
+
+_BRAIN_SERIES_CACHE: dict[str, tuple[float, dict]] = {}
+_BRAIN_SERIES_CACHE_TTL = 300.0  # 5 minutes
+
+
+@app.get("/api/mounts/{mount_id}/brain-series")
+def get_brain_series(mount_id: str, path: str = Query(..., description="Relative path to brain directory or section")) -> dict:
+    """Discover all serial slices and paired companion segmentations in a brain series."""
+    root = mounted_root(mount_id)
+    target = resolve_mounted_path(mount_id, path, require_directory=None)
+
+    if target.is_file():
+        target_dir = target.parent
+    else:
+        target_dir = target
+
+    if not target_dir.is_dir():
+        raise HTTPException(status_code=404, detail="Brain series directory not found")
+
+    cache_key = f"{mount_id}:{target_dir.as_posix()}"
+    now = time.time()
+    if cache_key in _BRAIN_SERIES_CACHE:
+        cached_time, cached_val = _BRAIN_SERIES_CACHE[cache_key]
+        if now - cached_time < _BRAIN_SERIES_CACHE_TTL:
+            return cached_val
+
+    brain_name = target_dir.name
+    image_dir = target_dir
+
+    if target_dir.name in {"compressed_jp2", "converted_jp2", "jp2", "whole_image", "ROI_QC"}:
+        brain_name = target_dir.parent.name
+        image_dir = target_dir
+    elif (target_dir / "compressed_jp2").is_dir():
+        brain_name = target_dir.name
+        image_dir = target_dir / "compressed_jp2"
+    elif (target_dir / "converted_jp2").is_dir():
+        brain_name = target_dir.name
+        image_dir = target_dir / "converted_jp2"
+
+    slice_entries = []
+    try:
+        with os.scandir(image_dir) as it:
+            for entry in it:
+                if entry.is_file() and not entry.name.startswith("."):
+                    name_lower = entry.name.lower()
+                    if name_lower.endswith(".jp2") or name_lower.endswith(".tif") or name_lower.endswith(".tiff"):
+                        try:
+                            slice_entries.append((entry.name, entry.path, entry.stat().st_size))
+                        except OSError:
+                            pass
+    except OSError:
+        pass
+
+    if not slice_entries and image_dir != target_dir:
+        image_dir = target_dir
+        try:
+            with os.scandir(image_dir) as it:
+                for entry in it:
+                    if entry.is_file() and not entry.name.startswith("."):
+                        name_lower = entry.name.lower()
+                        if name_lower.endswith(".jp2") or name_lower.endswith(".tif") or name_lower.endswith(".tiff"):
+                            try:
+                                slice_entries.append((entry.name, entry.path, entry.stat().st_size))
+                            except OSError:
+                                pass
+        except OSError:
+            pass
+
+    slice_entries.sort(key=lambda item: natural_slice_key(item[0]))
+
+    # Fast scan of companion overlay directories
+    overlay_map: dict[str, list[dict]] = {}
+    for ancestor in [target_dir, target_dir.parent, target_dir.parent.parent, target_dir.parent.parent.parent, target_dir.parent.parent.parent.parent]:
+        dm_dir = ancestor / "dm2doutputs"
+        if dm_dir.is_dir():
+            try:
+                for pmd_name in os.listdir(dm_dir):
+                    if brain_name.lower() in pmd_name.lower():
+                        pmd_path = dm_dir / pmd_name
+                        if pmd_path.is_dir():
+                            for sub_name in os.listdir(pmd_path):
+                                sub_path = pmd_path / sub_name
+                                if sub_path.is_dir():
+                                    wi_path = sub_path / "whole_image"
+                                    if wi_path.is_dir():
+                                        try:
+                                            with os.scandir(wi_path) as wi_it:
+                                                for f in wi_it:
+                                                    if f.name.endswith(".json"):
+                                                        clean_stem = re.sub(r"(_lossy|_lossless|_0|_1|\.json)$", "", f.name, flags=re.IGNORECASE)
+                                                        clean_stem = re.sub(r"(_lossy|_lossless)$", "", clean_stem, flags=re.IGNORECASE)
+                                                        overlay_map.setdefault(clean_stem, []).append({
+                                                            "filename": f.name,
+                                                            "path": mounted_relative_path(root, Path(f.path)),
+                                                            "mountId": mount_id,
+                                                            "kind": "json",
+                                                            "typeLabel": "PMD Segmentation",
+                                                            "size": f.stat().st_size,
+                                                        })
+                                        except OSError:
+                                            pass
+            except OSError:
+                pass
+
+    slices = []
+    for name, abs_path, sz in slice_entries:
+        try:
+            clean_stem = re.sub(r"(_lossy|_lossless)$", "", Path(name).stem, flags=re.IGNORECASE)
+            rel_path = mounted_relative_path(root, Path(abs_path))
+            comps = overlay_map.get(clean_stem)
+            if not comps:
+                # Same directory check
+                parent_p = Path(abs_path).parent
+                comps = [
+                    {
+                        "filename": f.name,
+                        "path": mounted_relative_path(root, f),
+                        "mountId": mount_id,
+                        "kind": "swc" if f.suffix.lower() == ".swc" else "json",
+                        "typeLabel": "SWC Skeleton" if f.suffix.lower() == ".swc" else "Spatial JSON",
+                        "size": f.stat().st_size,
+                    }
+                    for f in parent_p.glob(f"{clean_stem}*")
+                    if f.is_file() and f.name != name and f.suffix.lower() in {".json", ".swc"}
+                ]
+            slices.append({
+                "section": extract_section_label(name),
+                "filename": name,
+                "path": rel_path,
+                "mountId": mount_id,
+                "size": sz,
+                "companions": comps or [],
+            })
+        except Exception:
+            continue
+
+    total_companions = sum(len(s["companions"]) for s in slices)
+
+    res = {
+        "brainId": brain_name,
+        "rootPath": mounted_relative_path(root, target_dir),
+        "mountId": mount_id,
+        "sliceCount": len(slices),
+        "totalOverlays": total_companions,
+        "slices": slices,
+    }
+    _BRAIN_SERIES_CACHE[cache_key] = (now, res)
+    return res
+
+
 @app.get("/api/images/{image_id}")
 def get_image(image_id: str) -> dict:
     try:
@@ -1869,7 +2303,14 @@ def delete_overlay(overlay_id: str) -> Response:
 
 
 @app.get("/api/images/{image_id}/tiles/{level}/{tile_name}")
-def get_tile(image_id: str, level: int, tile_name: str) -> Response:
+def get_tile(
+    image_id: str,
+    level: int,
+    tile_name: str,
+    min: Optional[str] = None,
+    max: Optional[str] = None,
+    gam: Optional[float] = None,
+) -> Response:
     match = TILE_NAME_RE.fullmatch(tile_name)
     if level < 0 or not match:
         raise HTTPException(status_code=400, detail="Invalid tile path")
@@ -1903,9 +2344,33 @@ def get_tile(image_id: str, level: int, tile_name: str) -> Response:
             windows = metadata.get("displayWindows")
             if not isinstance(windows, list) or not windows:
                 raise ValueError
+
+            if isinstance(min, str) and isinstance(max, str):
+                try:
+                    mins = [float(v) for v in min.split(",")]
+                    maxs = [float(v) for v in max.split(",")]
+                    if len(mins) == 1 and len(windows) > 1:
+                        mins = mins * len(windows)
+                    if len(maxs) == 1 and len(windows) > 1:
+                        maxs = maxs * len(windows)
+                    if len(mins) == len(windows) and len(maxs) == len(windows):
+                        custom_windows = []
+                        for ch, (c_min, c_max) in enumerate(zip(mins, maxs)):
+                            if math.isfinite(c_min) and math.isfinite(c_max) and c_max > c_min:
+                                custom_windows.append({"channel": ch, "min": c_min, "max": c_max})
+                        if len(custom_windows) == len(windows):
+                            windows = custom_windows
+                except (ValueError, TypeError):
+                    pass
+
+            try:
+                gamma = float(gam) if (gam is not None and math.isfinite(float(gam)) and float(gam) > 0) else 1.0
+            except (TypeError, ValueError):
+                gamma = 1.0
+
             source = validated_iip_source(image_id, metadata)
             tile_index = tile_y * columns + tile_x
-            body, media_type = IIP.tile(source, level, tile_index, windows)
+            body, media_type = IIP.tile(source, level, tile_index, windows, gamma=gamma)
         except HTTPException:
             raise
         except SourceChangedError as exc:

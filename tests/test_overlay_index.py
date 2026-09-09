@@ -196,10 +196,8 @@ class OverlayIndexTests(unittest.TestCase):
             source = root / "overlay.json"
             output = root / "overlay.nsovl"
             source.write_text(json.dumps(fixture()), encoding="utf-8")
-            with (
-                mock.patch.dict(os.environ, {"NEUROSCOPE_OVERLAY_INDEX_PYTHON": "1"}),
-                mock.patch.object(indexer, "MAX_GRID_ENTRIES", 1),
-            ):
+            with mock.patch.dict(os.environ, {"NEUROSCOPE_OVERLAY_INDEX_PYTHON": "1"}), \
+                 mock.patch.object(indexer, "MAX_GRID_ENTRIES", 1):
                 with self.assertRaisesRegex(indexer.OverlayValidationError, "grid would require"):
                     indexer.build_index(source, output)
             self.assertFalse(output.exists())
@@ -232,13 +230,10 @@ class OverlayIndexTests(unittest.TestCase):
             source = root / "overlay.json"
             output = root / "overlay.nsovl"
             source.write_text(json.dumps(fixture()), encoding="utf-8")
-            with (
-                mock.patch.dict(os.environ, {
-                    "NEUROSCOPE_OVERLAY_INDEX_PYTHON": "0",
-                    "NEUROSCOPE_OVERLAY_INDEX_TIMEOUT_SECONDS": "1.5",
-                }),
-                mock.patch("overlay_index.subprocess.run", side_effect=subprocess.TimeoutExpired("node", 1.5)),
-            ):
+            with mock.patch.dict(os.environ, {
+                "NEUROSCOPE_OVERLAY_INDEX_PYTHON": "0",
+                "NEUROSCOPE_OVERLAY_INDEX_TIMEOUT_SECONDS": "1.5",
+            }), mock.patch("overlay_index.subprocess.run", side_effect=subprocess.TimeoutExpired("node", 1.5)):
                 with self.assertRaisesRegex(indexer.OverlayIndexError, "1.5-second time limit"):
                     indexer.build_index(source, output)
             self.assertFalse(output.exists())
@@ -267,10 +262,8 @@ class OverlayIndexTests(unittest.TestCase):
                 source = root / "overlay.json"
                 output = root / "overlay.nsovl"
                 source.write_text(json.dumps(fixture()), encoding="utf-8")
-                with (
-                    mock.patch.dict(os.environ, {"NEUROSCOPE_OVERLAY_INDEX_PYTHON": "0"}),
-                    mock.patch("overlay_index.subprocess.run", return_value=completed),
-                ):
+                with mock.patch.dict(os.environ, {"NEUROSCOPE_OVERLAY_INDEX_PYTHON": "0"}), \
+                     mock.patch("overlay_index.subprocess.run", return_value=completed):
                     with self.assertRaisesRegex(error_type, message):
                         indexer.build_index(source, output)
                 self.assertFalse(output.exists())

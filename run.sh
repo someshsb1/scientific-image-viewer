@@ -7,9 +7,18 @@ PID_FILE="$RUNTIME_DIR/neuroscope.pid"
 PGID_FILE="$RUNTIME_DIR/neuroscope.pgid"
 INSTANCE_FILE="$RUNTIME_DIR/neuroscope.instance"
 LOG_FILE="$RUNTIME_DIR/neuroscope.log"
-PYTHON_BIN="${NEUROSCOPE_PYTHON:-python3}"
-SERVER_HOST="${NEUROSCOPE_HOST:-127.0.0.1}"
+if [[ -z "${NEUROSCOPE_PYTHON:-}" ]]; then
+  if [[ -x "$APP_DIR/venv/bin/python" ]]; then
+    PYTHON_BIN="$APP_DIR/venv/bin/python"
+  else
+    PYTHON_BIN="python3"
+  fi
+else
+  PYTHON_BIN="$NEUROSCOPE_PYTHON"
+fi
+SERVER_HOST="${NEUROSCOPE_HOST:-0.0.0.0}"
 SERVER_PORT="${NEUROSCOPE_PORT:-8088}"
+export NEUROSCOPE_MOUNT_ROOTS="${NEUROSCOPE_MOUNT_ROOTS:-mnt:/mnt}"
 COMMAND="${1:-start}"
 
 if [[ ! "$SERVER_PORT" =~ ^[0-9]+$ ]] || (( SERVER_PORT < 1 || SERVER_PORT > 65535 )); then
@@ -250,12 +259,18 @@ start_server() {
   (umask 077; printf '%s\n' "$instance_token" > "$INSTANCE_FILE")
   export NEUROSCOPE_INSTANCE_TOKEN="$instance_token"
   touch "$LOG_FILE"
+  local ssd_output_args=()
+  if start-stop-daemon --help 2>&1 | grep -q -- '--output'; then
+    ssd_output_args=(--output "$LOG_FILE")
+  else
+    ssd_output_args=(--no-close)
+  fi
   if ! start-stop-daemon --start --background --make-pidfile \
     --pidfile "$PID_FILE" \
     --chdir "$APP_DIR" \
     --startas "$python_path" \
-    --output "$LOG_FILE" \
-    -- server.py; then
+    "${ssd_output_args[@]}" \
+    -- server.py >> "$LOG_FILE" 2>&1; then
     echo "NeuroScope could not be launched. Inspect $LOG_FILE for details." >&2
     clear_runtime_identity
     return 1

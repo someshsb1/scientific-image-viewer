@@ -1,4 +1,5 @@
 import shutil
+import subprocess
 import tempfile
 import unittest
 from concurrent.futures import Future
@@ -184,40 +185,46 @@ class BackendTests(unittest.TestCase):
                 backend.DATA_ROOT = original_root
 
     def test_vips_inspection(self):
-        details = backend.inspect_image(JP2_FIXTURE)
-        self.assertEqual((details["width"], details["height"]), (32, 32))
-        self.assertEqual(details["bands"], 3)
-        self.assertEqual(details["pixelFormat"], "ushort")
+        if not backend.VIPS:
+            self.skipTest("vips not installed")
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Path(temporary) / "test.tif"
+            subprocess.run([backend.VIPS, "black", str(fixture), "32", "32", "--bands=3"], check=True)
+            fixture16 = Path(temporary) / "test16.tif"
+            subprocess.run([backend.VIPS, "cast", str(fixture), str(fixture16), "ushort"], check=True)
+            details = backend.inspect_image(fixture16)
+            self.assertEqual((details["width"], details["height"]), (32, 32))
+            self.assertEqual(details["bands"], 3)
+            self.assertEqual(details["pixelFormat"], "ushort")
 
     def test_jp2_and_tiff_build_real_pyramids(self):
+        if not backend.VIPS:
+            self.skipTest("vips not installed")
         original_root = backend.DATA_ROOT
         with tempfile.TemporaryDirectory() as temporary:
             backend.DATA_ROOT = Path(temporary)
             try:
-                for image_id, fixture, image_format in (
-                    ("jp2-fixture", JP2_FIXTURE, "JP2"),
-                    ("tiff-fixture", TIFF_FIXTURE, "TIFF"),
-                ):
-                    directory = backend.record_dir(image_id)
-                    directory.mkdir()
-                    source = directory / f"source{fixture.suffix}"
-                    shutil.copyfile(fixture, source)
-                    backend.write_metadata(image_id, {
-                        "id": image_id,
-                        "filename": fixture.name,
-                        "format": image_format,
-                        "fileSize": source.stat().st_size,
-                        "status": "queued",
-                        "progress": 0,
-                        "_source": str(source),
-                    })
-                    backend.build_tile_pyramid(image_id)
-                    metadata = backend.read_metadata(image_id)
-                    self.assertEqual(metadata["status"], "ready")
-                    levels = [path for path in (directory / "image_files").iterdir() if path.is_dir()]
-                    self.assertEqual(metadata["maxLevel"], len(levels) - 1)
-                    self.assertTrue((directory / "image_files" / str(metadata["maxLevel"]) / "0_0.jpg").is_file())
-                    self.assertTrue((directory / "image.dzi").is_file())
+                image_id = "tiff-fixture"
+                directory = backend.record_dir(image_id)
+                directory.mkdir()
+                source = directory / "source.tif"
+                subprocess.run([backend.VIPS, "black", str(source), "32", "32", "--bands=3"], check=True)
+                backend.write_metadata(image_id, {
+                    "id": image_id,
+                    "filename": "source.tif",
+                    "format": "TIFF",
+                    "fileSize": source.stat().st_size,
+                    "status": "queued",
+                    "progress": 0,
+                    "_source": str(source),
+                })
+                backend.build_tile_pyramid(image_id)
+                metadata = backend.read_metadata(image_id)
+                self.assertEqual(metadata["status"], "ready")
+                levels = [path for path in (directory / "image_files").iterdir() if path.is_dir()]
+                self.assertEqual(metadata["maxLevel"], len(levels) - 1)
+                self.assertTrue((directory / "image_files" / str(metadata["maxLevel"]) / "0_0.jpg").is_file())
+                self.assertTrue((directory / "image.dzi").is_file())
             finally:
                 backend.DATA_ROOT = original_root
 

@@ -8,7 +8,7 @@
       name="description"
       content="Internal deep-zoom viewer for JP2, TIFF, SWC, and scientific JSON datasets."
     />
-    <title>NeuroScope · Scientific Image Viewer</title>
+    <title>Internal · Image Viewer</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
@@ -60,6 +60,14 @@
       <symbol id="i-grid" viewBox="0 0 24 24"><path d="M4 4h6v6H4V4Zm10 0h6v6h-6V4ZM4 14h6v6H4v-6Zm10 0h6v6h-6v-6Z" /></symbol>
       <symbol id="i-library" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="15" rx="2" /><path d="M7 5V3h10v2M8 10h8m-8 4h5" /></symbol>
       <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m15.5 15.5 5 5" /></symbol>
+      <symbol id="i-ruler" viewBox="0 0 24 24"><path d="M21.3 7.7 16.3 2.7a2 2 0 0 0-2.8 0L2.7 13.5a2 2 0 0 0 0 2.8l5 5a2 2 0 0 0 2.8 0l10.8-10.8a2 2 0 0 0 0-2.8Z"/><path d="m14.5 4.5 2 2M11.5 7.5l2 2M8.5 10.5l2 2M5.5 13.5l2 2"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2Z"/></symbol>
+      <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+      <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+      <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+      <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7Zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5Z"/></symbol>
+      <symbol id="i-split" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/></symbol>
     </svg>
 
     <div class="app-shell">
@@ -67,8 +75,8 @@
         <div class="brand">
           <span class="brand-mark"><svg><use href="#i-logo"></use></svg></span>
           <div>
-            <div class="brand-name">NeuroScope <span>Internal</span></div>
-            <div class="brand-subtitle">Scientific image workspace</div>
+            <div class="brand-name">Brainviewer <span>Internal</span></div>
+            <div class="brand-subtitle">image workspace</div>
           </div>
         </div>
 
@@ -100,6 +108,32 @@
               <span class="eyebrow">Workspace</span>
               <h2>Layers <span class="count-badge" id="layer-count">0</span></h2>
             </div>
+            <div class="panel-heading-actions">
+              <button class="icon-button header-action-btn hidden" id="clear-all-overlays-btn" title="Remove all overlays from workspace">
+                <svg><use href="#i-trash"></use></svg>
+              </button>
+              <button class="icon-button header-action-btn" id="add-overlay-btn" title="Add SWC / JSON overlay">
+                <svg><use href="#i-plus"></use></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="layers-section-sync hidden" id="layers-section-sync">
+            <label class="section-sync-toggle" title="When stepping between brain sections, automatically clear the previous section's overlays">
+              <input type="checkbox" id="auto-clear-overlays-checkbox" checked />
+              <span>Auto-remove overlays on section change</span>
+            </label>
+          </div>
+
+          <div id="companion-overlay-card" class="companion-overlay-card hidden">
+            <div class="companion-header">
+              <div class="companion-title">
+                <span class="companion-spark"><svg><use href="#i-spark"></use></svg></span>
+                <strong>Matching Overlays</strong>
+              </div>
+              <span class="companion-count" id="companion-count">0 found</span>
+            </div>
+            <div class="companion-list" id="companion-list"></div>
           </div>
 
           <div class="layer-list" id="layer-list"></div>
@@ -140,6 +174,19 @@
             <button class="tool-button labeled active" id="grid-button" title="Toggle tile boundaries">
               <svg><use href="#i-grid"></use></svg><span>Seamless</span>
             </button>
+            <span class="toolbar-divider"></span>
+            <button class="tool-button labeled" id="pin-button" disabled title="Add Landmark Pin (P)">
+              <svg><use href="#i-pin"></use></svg><span>Pin</span>
+            </button>
+            <div class="tool-group section-nav-group hidden" id="section-nav-group">
+              <button class="tool-button compact" id="nav-prev-section" title="Previous section ([)">
+                <svg><use href="#i-chevron-left"></use></svg>
+              </button>
+              <span class="toolbar-pill section-nav-pill" id="nav-section-label" title="Current serial section">Section F1 · 1 / 526</span>
+              <button class="tool-button compact" id="nav-next-section" title="Next section (])">
+                <svg><use href="#i-chevron-right"></use></svg>
+              </button>
+            </div>
             <div class="toolbar-spacer"></div>
             <div class="toolbar-hint"><span class="mouse-wheel"></span> Scroll to zoom · drag to pan</div>
           </div>
@@ -192,11 +239,24 @@
               </div>
             </div>
 
-            <div class="viewport-chip hidden" id="resolution-chip"><span></span><span id="resolution-label">Level 0</span></div>
-            <div class="scale-bar hidden" id="scale-bar"><div></div><span id="scale-label">100 px</span></div>
+            <div class="hud-chip section-nav-hud hidden" id="section-nav-hud">
+              <button class="icon-button compact" id="hud-nav-prev" title="Previous section ([)">
+                <svg><use href="#i-chevron-left"></use></svg>
+              </button>
+              <span class="section-nav-text" id="hud-nav-label">Section F1 · 1 / 526</span>
+              <button class="icon-button compact" id="hud-nav-next" title="Next section (])">
+                <svg><use href="#i-chevron-right"></use></svg>
+              </button>
+            </div>
 
+            <div class="hud-chip resolution-chip hidden" id="resolution-chip">
+              <span class="live-dot"></span><span id="resolution-chip-label">Pyramid level 1 / 4</span>
+            </div>
+            <div class="hud-chip scale-bar hidden" id="scale-bar">
+              <span class="scale-bar-line"></span><span id="scale-bar-label">1,000 px</span>
+            </div>
             <div class="minimap hidden" id="minimap">
-              <div class="minimap-heading"><span>Overview</span><button id="minimap-close" aria-label="Hide overview"><svg><use href="#i-close"></use></svg></button></div>
+              <div class="minimap-header"><span>Overview</span><button id="minimap-close" aria-label="Hide minimap"><svg><use href="#i-close"></use></svg></button></div>
               <canvas id="minimap-canvas" width="220" height="132"></canvas>
             </div>
           </div>
@@ -241,18 +301,97 @@
               <input class="range" id="opacity-range" type="range" min="0" max="100" value="100" />
               <div class="control-row overlay-only">
                 <label class="field-block"><span>Color</span><span class="color-control"><input id="color-input" type="color" value="#35d1c5" /><b id="color-value">#35D1C5</b></span></label>
-                <label class="field-block"><span>Size</span><span class="stepper"><button id="size-down">−</button><output id="size-output">2 px</output><button id="size-up">+</button></span></label>
+                <label class="field-block"><span>Stroke</span><span class="stepper"><button id="size-down">−</button><output id="size-output">2 px</output><button id="size-up">+</button></span></label>
+              </div>
+              <div class="swc-only hidden" id="swc-appearance" style="margin-top: 8px;">
+                <label class="field-block">
+                  <span style="font-size: 10px; font-weight: 600; color: #7b94a2;">Color Mode</span>
+                  <select class="select-input" id="swc-color-mode">
+                    <option value="auto">Auto Neuroanatomy</option>
+                    <option value="custom">Custom Color</option>
+                  </select>
+                </label>
+                <div class="swc-compartments-legend" id="swc-compartments">
+                  <span class="legend-title">Neuron Compartments:</span>
+                  <div class="swc-legend-grid">
+                    <label class="swc-legend-item"><input type="checkbox" checked data-swc-type="1"><span class="swc-swatch" style="background:#38d1c4"></span>Soma</label>
+                    <label class="swc-legend-item"><input type="checkbox" checked data-swc-type="2"><span class="swc-swatch" style="background:#ff5252"></span>Axon</label>
+                    <label class="swc-legend-item"><input type="checkbox" checked data-swc-type="3"><span class="swc-swatch" style="background:#e040fb"></span>Basal Dendrite</label>
+                    <label class="swc-legend-item"><input type="checkbox" checked data-swc-type="4"><span class="swc-swatch" style="background:#69f0ae"></span>Apical Dendrite</label>
+                    <label class="swc-legend-item"><input type="checkbox" checked data-swc-type="other"><span class="swc-swatch" style="background:#ffd740"></span>Other</label>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="inspector-section base-only hidden" id="contrast-section">
+              <div class="section-title"><span>Contrast &amp; Colormaps</span><small>Live Canvas</small></div>
+              <label class="field-block" style="margin-bottom: 10px;">
+                <span style="font-size: 10px; font-weight: 600; color: #7b94a2;">Colormap / LUT</span>
+                <select class="select-input" id="lut-preset">
+                  <option value="normal">Default (RGB / Grayscale)</option>
+                  <option value="invert">Invert / Darkfield</option>
+                  <option value="gfp">GFP Green (Fluorescence)</option>
+                  <option value="rfp">RFP Red (Fluorescence)</option>
+                  <option value="dapi">DAPI Cyan (Fluorescence)</option>
+                  <option value="thermal">Thermal / Hot</option>
+                  <option value="viridis">Viridis / False Color</option>
+                </select>
+              </label>
+              <label class="field-label" for="brightness-range"><span>Brightness</span><output id="brightness-output">0%</output></label>
+              <input class="range" id="brightness-range" type="range" min="-100" max="100" value="0" />
+              <label class="field-label" for="contrast-range"><span>Contrast</span><output id="contrast-output">0%</output></label>
+              <input class="range" id="contrast-range" type="range" min="-100" max="100" value="0" />
+              <label class="field-label" for="gamma-range"><span>Gamma</span><output id="gamma-output">1.0</output></label>
+              <input class="range" id="gamma-range" type="range" min="20" max="300" value="100" />
+              <div class="contrast-actions">
+                <button class="button button-ghost compact" id="reset-contrast-button">Reset Contrast</button>
               </div>
             </section>
 
             <section class="inspector-section overlay-only" id="coordinates-section">
-              <div class="section-title"><span>Coordinates</span><small>Image space</small></div>
-              <div class="control-row">
-                <label class="field-block"><span>X offset</span><input class="text-input" id="offset-x" type="number" value="0" step="1" /></label>
-                <label class="field-block"><span>Y offset</span><input class="text-input" id="offset-y" type="number" value="0" step="1" /></label>
+              <div class="section-title"><span>Overlay Alignment</span></div>
+              <button class="button button-primary button-full align-overlay-btn" id="align-overlay-button" title="Auto-align and center overlay onto image">
+                <svg><use href="#i-spark"></use></svg><span>Align Overlay</span>
+              </button>
+              <div class="align-quick-actions">
+                <button class="button button-secondary compact" id="btn-1to1-overlay" title="Native 1:1 scale with inverted Y">1:1 Native</button>
+                <button class="button button-secondary compact" id="btn-fit-overlay" title="Scale and center overlay to image">Auto-Fit</button>
+                <button class="button button-secondary compact" id="btn-flip-vertical" title="Flip upside down / right side up">Flip Y</button>
               </div>
-              <label class="toggle-row"><span><strong>Flip Y axis</strong><small>Use bottom-left origin</small></span><input id="flip-y" type="checkbox" /><i></i></label>
+              <div class="align-nudge-controls" id="align-nudge-controls">
+                <div class="nudge-control-row">
+                  <span class="nudge-title">Scale</span>
+                  <div class="nudge-button-group">
+                    <button class="nudge-btn" id="btn-scale-down" title="Scale down 2%">−</button>
+                    <span class="nudge-val" id="overlay-scale-display">100%</span>
+                    <button class="nudge-btn" id="btn-scale-up" title="Scale up 2%">+</button>
+                  </div>
+                </div>
+                <div class="nudge-control-row">
+                  <span class="nudge-title">Nudge</span>
+                  <div class="nudge-arrows">
+                    <button class="nudge-btn" id="btn-nudge-left" title="Nudge left">◀</button>
+                    <button class="nudge-btn" id="btn-nudge-up" title="Nudge up">▲</button>
+                    <button class="nudge-btn" id="btn-nudge-down" title="Nudge down">▼</button>
+                    <button class="nudge-btn" id="btn-nudge-right" title="Nudge right">▶</button>
+                    <button class="nudge-btn" id="btn-reset-alignment" title="Reset all offsets and scale">↺</button>
+                  </div>
+                </div>
+              </div>
+              <div class="alignment-info-badge" id="alignment-info-badge">
+                <span class="alignment-status-dot"></span>
+                <span id="alignment-orientation-label">Orientation: Standard</span>
+              </div>
               <div class="bounds-note" id="bounds-note"><svg><use href="#i-check"></use></svg><span>Coordinates fit image bounds</span></div>
+
+              <div class="advanced-coords-group hidden" id="advanced-coords-group">
+                <div class="control-row">
+                  <label class="field-block"><span>X offset</span><input class="text-input" id="offset-x" type="number" value="0" step="1" /></label>
+                  <label class="field-block"><span>Y offset</span><input class="text-input" id="offset-y" type="number" value="0" step="1" /></label>
+                </div>
+                <label class="toggle-row"><span><strong>Flip Y axis</strong><small>Use bottom-left origin</small></span><input id="flip-y" type="checkbox" /><i></i></label>
+              </div>
             </section>
 
             <section class="inspector-section">
@@ -275,8 +414,10 @@
         <span>Fit image</span><kbd>F</kbd>
         <span>Actual size</span><kbd>0</kbd>
         <span>Pan view</span><div><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd></div>
+        <span>Landmark pin</span><kbd>P</kbd>
+        <span>Next / previous slice</span><div><kbd>[</kbd><kbd>]</kbd></div>
         <span>Available images</span><kbd>L</kbd>
-        <span>Open server path</span><kbd>S</kbd>
+        <span>Server file browser</span><kbd>S</kbd>
       </div>
     </dialog>
 
@@ -312,12 +453,33 @@
       </div>
     </dialog>
 
-    <dialog class="server-path-dialog" id="server-path-dialog" aria-labelledby="server-path-title" aria-describedby="server-path-help">
+    <dialog class="server-path-dialog file-browser-dialog" id="server-path-dialog" aria-labelledby="server-path-title" aria-describedby="server-path-help">
       <div class="dialog-heading server-dialog-heading">
-        <div><span class="eyebrow">Configured storage</span><h2 id="server-path-title">Open server path</h2></div>
-        <button id="close-server-path" aria-label="Close server path dialog"><svg><use href="#i-close"></use></svg></button>
+        <div><span class="eyebrow">Server Storage</span><h2 id="server-path-title">Server File Browser</h2></div>
+        <button id="close-server-path" aria-label="Close server browser"><svg><use href="#i-close"></use></svg></button>
       </div>
-      <form class="server-path-form" id="server-path-form" novalidate>
+
+      <div class="file-browser-mounts-bar" id="file-browser-mounts">
+        <span class="mounts-label">Storage:</span>
+        <div class="mount-pills" id="mount-pills"></div>
+      </div>
+
+      <div class="file-browser-nav-bar">
+        <button class="icon-button" id="file-browser-up" title="Parent folder" disabled>
+          <svg><use href="#i-chevron-left"></use></svg>
+        </button>
+        <nav class="file-browser-breadcrumbs" id="file-browser-breadcrumbs" aria-label="Directory path"></nav>
+        <div class="file-browser-search-wrap">
+          <svg><use href="#i-search"></use></svg>
+          <input id="file-browser-filter" type="search" placeholder="Filter folder…" autocomplete="off" />
+        </div>
+      </div>
+
+      <div class="file-browser-body">
+        <div class="file-browser-list" id="file-browser-list" role="list"></div>
+      </div>
+
+      <form class="server-path-form direct-path-section" id="server-path-form" novalidate>
         <div class="server-path-copy">
           <label for="server-path-input">Absolute server file path</label>
           <span id="server-path-help">Paste the complete path to a JP2, TIFF, JSON, or SWC inside configured storage. The source stays in place.</span>
@@ -331,7 +493,7 @@
             autocapitalize="none"
             spellcheck="false"
             autofocus
-            placeholder="/nfs/data/…/section.jp2"
+            placeholder="/mnt/nfs/main/…/section.jp2"
             aria-describedby="server-path-help server-path-status"
             aria-invalid="false"
           />
@@ -341,6 +503,27 @@
         </div>
         <span class="server-path-status" id="server-path-status" role="status" aria-live="polite"></span>
       </form>
+    </dialog>
+
+    <dialog class="server-path-dialog companion-picker-dialog" id="companion-picker-dialog" aria-labelledby="companion-picker-title">
+      <div class="dialog-heading">
+        <div>
+          <span class="eyebrow">Smart Pairing</span>
+          <h2 id="companion-picker-title">Matching Section Overlays</h2>
+        </div>
+        <button id="close-companion-picker" aria-label="Close companion dialog"><svg><use href="#i-close"></use></svg></button>
+      </div>
+      <div class="companion-picker-body">
+        <p class="companion-picker-desc" id="companion-picker-desc">Found aligned segmentation and reconstruction files for the current section.</p>
+        <div class="companion-picker-list" id="companion-picker-list"></div>
+      </div>
+      <div class="image-library-footer">
+        <span id="companion-picker-footer-note"><svg><use href="#i-info"></use></svg>Overlays are aligned in source coordinate space.</span>
+        <div class="companion-picker-actions">
+          <button class="button button-ghost" id="cancel-companion-picker">Close</button>
+          <button class="button button-primary" id="load-all-companions-btn">Load All Overlays</button>
+        </div>
+      </div>
     </dialog>
 
     <div class="toast-region" id="toast-region" aria-live="polite"></div>

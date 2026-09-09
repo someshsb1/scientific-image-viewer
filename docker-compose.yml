@@ -1,0 +1,25 @@
+version: "3.8"
+
+services:
+  neuroscope:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: neuroscope
+    ports:
+      - "8088:8088"
+    environment:
+      - NEUROSCOPE_DATA_ROOT=/app/data
+      - NEUROSCOPE_STORAGE_MOUNTS=samples:/app/samples
+    volumes:
+      - neuroscope_data:/app/data
+      - ./samples:/app/samples:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8088/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  neuroscope_data:

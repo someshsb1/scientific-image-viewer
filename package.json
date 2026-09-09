@@ -1,0 +1,29 @@
+{
+  "name": "scientific-image-viewer",
+  "version": "1.0.0",
+  "description": "NeuroScope is an internal browser viewer for large JP2 and TIFF microscopy images with aligned SWC and spatial JSON overlays. JP2 files open through on-demand Kakadu/IIPImage tiles; they are not expanded into a local pyramid. TIFF files use the compatibility preparation queue and a libvips Deep Zoom pyramid.",
+  "main": "overlay_index_fast.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/someshsb1/scientific-image-viewer.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/someshsb1/scientific-image-viewer/issues"
+  },
+  "homepage": "https://github.com/someshsb1/scientific-image-viewer#readme",
+  "dependencies": {
+    "jsdom": "^20.0.3"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^19.11.1"
+  }
+}
