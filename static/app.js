@@ -486,11 +486,19 @@ function validImageId(value) {
   return IMAGE_ID_PATTERN.test(candidate) ? candidate : null;
 }
 
-function setImageUrl(imageId) {
+function setImageUrl(value) {
   const url = new URL(window.location.href);
-  const safeId = validImageId(imageId);
-  if (safeId) url.searchParams.set("image", safeId);
-  else url.searchParams.delete("image");
+  if (!value) {
+    url.searchParams.delete("image");
+  } else if (typeof value === "object") {
+    const readable = value.filename || value.name || value.id;
+    if (readable) url.searchParams.set("image", readable);
+    else url.searchParams.delete("image");
+  } else if (typeof value === "string" && value.trim()) {
+    url.searchParams.set("image", value.trim());
+  } else {
+    url.searchParams.delete("image");
+  }
   window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
 }
 
@@ -523,29 +531,27 @@ function syncViewportToUrl() {
 
 
 async function reopenImageFromUrl() {
-  const requestedId = new URLSearchParams(window.location.search).get("image");
-  if (!requestedId) return false;
-  const imageId = validImageId(requestedId);
-  if (!imageId) {
-    setImageUrl(null);
-    toast("Invalid image link", "The image ID in this URL is not a valid UUID.", "error", 7000);
-    return false;
-  }
+  const params = new URLSearchParams(window.location.search);
+  const requested = (params.get("image") || params.get("file") || params.get("path") || "").trim();
+  if (!requested) return false;
+
   const operationToken = beginImageOperation();
   try {
-    showProcessing({ filename: "Saved image", status: "reopening" });
-    const metadata = await responseJson(await fetch(`/api/images/${encodeURIComponent(imageId)}`, { cache: "no-store" }));
+    showProcessing({ filename: requested, status: "reopening" });
+    const metadata = await responseJson(
+      await fetch(`/api/images/${encodeURIComponent(requested)}`, { cache: "no-store" })
+    );
     ensureCurrentImageOperation(operationToken);
     const ready = await pollUntilReady(metadata, operationToken);
     ensureCurrentImageOperation(operationToken);
     await activateImage(ready);
-    toast("Image reopened", `${ready.filename} loaded from its saved server job.`);
+    toast("Image opened", `${ready.filename} loaded successfully.`);
     return true;
   } catch (error) {
     if (imageOperationWasSuperseded(error, operationToken)) return false;
     hideProcessing();
     if (!state.image) els.empty.classList.remove("hidden");
-    toast("Could not reopen image", error.message, "error", 7000);
+    toast("Could not open image", error.message, "error", 7000);
     return false;
   }
 }
@@ -1266,7 +1272,7 @@ async function registerAndOpenServerImage({ url, body, filename, errorTitle, onE
     });
     const registered = await responseJson(response);
     ensureCurrentImageOperation(operationToken);
-    setImageUrl(registered.id);
+    setImageUrl(registered.filename || registered.id);
     const ready = await pollUntilReady(registered, operationToken);
     ensureCurrentImageOperation(operationToken);
     await activateImage(ready);
@@ -1453,7 +1459,7 @@ async function activateImage(metadata, options = {}) {
     state.layers.forEach(disposeIndexedLayer);
   }
   state.image = metadata;
-  setImageUrl(metadata.id);
+  setImageUrl(metadata.filename || metadata.id);
   state.tileCache.clear();
   state.overview = null;
   state.overviewLoading = false;

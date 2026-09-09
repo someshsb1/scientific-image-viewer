@@ -714,7 +714,7 @@ assert.equal(window.location.search, "");
   assert.deepEqual(JSON.parse(directPathRequest.options.body), { path: directPath });
   assert.equal(mountedRequests.some((request) => request.url.startsWith("/api/images/raw")), false);
   assert.equal(window.document.querySelector("#workspace-title").textContent, "direct-section");
-  assert.equal(new URLSearchParams(window.location.search).get("image"), directPathMetadata.id);
+  assert.equal(new URLSearchParams(window.location.search).get("image"), "direct-section.jp2");
   assert.equal(serverPathSubmit.disabled, true);
   const details = Object.fromEntries([...window.document.querySelectorAll("#metadata-list dt")].map((term) => [
     term.textContent,
@@ -1126,7 +1126,7 @@ assert.equal(window.location.search, "");
   assert.equal(await reopenImageFromUrl(), true);
   assert.ok(requestedUrls.includes("/api/images/" + imageId));
   assert.equal(window.document.querySelector("#workspace-title").textContent, "saved-section");
-  assert.equal(new URLSearchParams(window.location.search).get("image"), imageId);
+  assert.equal(new URLSearchParams(window.location.search).get("image"), "saved-section.jp2");
 
   const mountedLibraryId = "66666666-6666-4666-8666-666666666666";
   const readyLibraryId = "77777777-7777-4777-8777-777777777777";

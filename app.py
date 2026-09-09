@@ -1788,8 +1788,10 @@ def list_images(
 def get_image_companions(image_id: str) -> dict:
     """Auto-discover matching .json and .swc companion overlays for an active image."""
     try:
-        metadata = read_metadata(image_id)
-    except (FileNotFoundError, ValueError, json.JSONDecodeError) as exc:
+        metadata = resolve_image_record(image_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
         raise HTTPException(status_code=404, detail="Image record not found") from exc
 
     if metadata.get("isDemo") or image_id == "demo-neu":
@@ -2167,11 +2169,128 @@ def get_brain_series(mount_id: str, path: str = Query(..., description="Relative
     return res
 
 
+def resolve_image_record(identifier: str) -> dict:
+    """Find an image record by UUID, demo alias, exact filename, stem, or mounted storage path."""
+    clean = str(identifier or "").strip()
+    if not clean:
+        raise HTTPException(status_code=400, detail="Image identifier cannot be empty")
+
+    # 1. Direct UUID lookup
+    if IMAGE_ID_RE.fullmatch(clean):
+        try:
+            return read_metadata(clean)
+        except (FileNotFoundError, ValueError, json.JSONDecodeError):
+            pass
+
+    # 2. Demo alias
+    if clean.lower() in {"demo", "demo-neural-section-v1", "synthetic_neural_section.tif", "synthetic_neural_section"}:
+        return create_demo_record()
+
+    # 3. Search registered images in DATA_ROOT
+    clean_lower = clean.lower()
+    clean_stem = Path(clean).stem.lower()
+    best_match = None
+    most_recent_ts = float("-inf")
+
+    try:
+        if DATA_ROOT.is_dir():
+            for directory in DATA_ROOT.iterdir():
+                if (
+                    directory.name.startswith(("_", "."))
+                    or not IMAGE_ID_RE.fullmatch(directory.name)
+                    or directory.is_symlink()
+                    or not directory.is_dir()
+                ):
+                    continue
+                path = directory / "metadata.json"
+                if not path.is_file():
+                    continue
+                try:
+                    with path.open("r", encoding="utf-8") as handle:
+                        meta = json.load(handle)
+                except Exception:
+                    continue
+
+                if not isinstance(meta, dict) or meta.get("status") not in IMAGE_RECORD_STATUSES:
+                    continue
+
+                fname = meta.get("filename", "")
+                fname_lower = fname.lower()
+                fname_stem = Path(fname).stem.lower()
+                mounted_p = meta.get("mountedPath", "").lower()
+                ts = image_library_timestamp(meta)
+
+                # Highest priority: exact filename match
+                if fname_lower == clean_lower or fname == clean:
+                    if ts > most_recent_ts:
+                        most_recent_ts = ts
+                        best_match = meta
+                # Match mounted relative path
+                elif mounted_p and (mounted_p == clean_lower or mounted_p.endswith("/" + clean_lower)):
+                    if ts > most_recent_ts:
+                        most_recent_ts = ts
+                        best_match = meta
+                # Match stem (e.g. MD1021_F1 matching MD1021_F1.jp2)
+                elif not best_match and (fname_stem == clean_stem or fname_stem == clean_lower):
+                    if ts > most_recent_ts:
+                        most_recent_ts = ts
+                        best_match = meta
+    except Exception as exc:
+        LOGGER.warning("Error scanning image library for %s: %s", clean, exc)
+
+    if best_match is not None:
+        return best_match
+
+    # 4. If identifier looks like an absolute server path inside mounts
+    if clean.startswith("/"):
+        try:
+            mount_id, mounted_source = resolve_absolute_mounted_image_path(clean)
+            res = register_resolved_mounted_image(mount_id, mounted_source)
+            if res.status_code in (200, 201, 202):
+                return json.loads(res.body.decode("utf-8"))
+        except Exception:
+            pass
+
+    # 5. Search configured storage mounts for a file with this name
+    clean_name = Path(clean).name
+    if clean_name:
+        for mount_id, root in MOUNT_ROOTS.items():
+            if not root.is_dir():
+                continue
+            # Try direct root / clean
+            direct = root / clean.lstrip("/")
+            if direct.is_file() and direct.suffix.lower() in ALLOWED_EXTENSIONS:
+                try:
+                    res = register_resolved_mounted_image(mount_id, direct)
+                    if res.status_code in (200, 201, 202):
+                        return json.loads(res.body.decode("utf-8"))
+                except Exception:
+                    pass
+
+            # Search mount root for file matching clean_name
+            try:
+                for candidate in root.glob(f"**/{clean_name}"):
+                    if candidate.is_file() and candidate.suffix.lower() in ALLOWED_EXTENSIONS:
+                        try:
+                            res = register_resolved_mounted_image(mount_id, candidate)
+                            if res.status_code in (200, 201, 202):
+                                return json.loads(res.body.decode("utf-8"))
+                        except Exception:
+                            pass
+                        break
+            except Exception:
+                pass
+
+    raise HTTPException(status_code=404, detail=f"Image not found: {clean}")
+
+
 @app.get("/api/images/{image_id}")
 def get_image(image_id: str) -> dict:
     try:
-        return public_metadata(read_metadata(image_id))
-    except (FileNotFoundError, ValueError, json.JSONDecodeError) as exc:
+        return public_metadata(resolve_image_record(image_id))
+    except HTTPException:
+        raise
+    except Exception as exc:
         raise HTTPException(status_code=404, detail="Image not found") from exc
 
 
